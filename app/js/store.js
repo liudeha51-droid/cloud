@@ -92,6 +92,8 @@
       this.api = null;
       this.version = 0;          // server version our local copy is based on / 本地副本所基于的服务器版本
       this.dirty = false;        // local changes not yet pushed / 尚未推送的本地更改
+      this.rev = 0;              // bumped on every local save / 每次本地保存时递增
+      this._resync = false;      // a save happened while a sync was running / 同步进行中又发生了保存
       this.listeners = new Set();
       this.status = 'local';     // local | synced | syncing | offline | error
       this.statusDetail = '';
@@ -185,6 +187,7 @@
 
     async save() {
       this.dirty = true;
+      this.rev++;
       await this.persistLocal();
       this.emit();
       if (this.api && this.api.token) this.sync();
@@ -193,8 +196,12 @@
     // Pull → merge → push with optimistic versioning; retries if another device pushed first.
     // 拉取 → 合并 → 推送（乐观版本控制）；如果其他设备先推送了，就重试。
     async sync() {
-      if (!this.api || !this.api.token || this._syncing) return;
+      if (!this.api || !this.api.token) return;
+      // Don't drop the request: run another round once the current one finishes.
+      // 不要丢弃这次请求：等当前这轮结束后再同步一轮。
+      if (this._syncing) { this._resync = true; return; }
       this._syncing = true;
+      this._resync = false;
       this.setStatus('syncing');
       try {
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -205,11 +212,14 @@
             this.version = remote.version;
           }
           if (!this.dirty) break;
+          const rev = this.rev;
           this.envelope = await C.sealVault(this.envelope, this.vaultKey, this.vault);
           try {
             const r = await this.api.putVault(this.version, JSON.stringify(this.envelope));
             this.version = r.version;
-            this.dirty = false;
+            // Edits made while the upload was in flight aren't in it — stay dirty so they get pushed.
+            // 上传过程中产生的修改不在这次上传里 —— 保持 dirty，确保它们之后会被推送。
+            this.dirty = this.rev !== rev;
             break;
           } catch (e) {
             // another device pushed first → pull, merge, retry / 其他设备先推送了 → 拉取、合并、重试
@@ -226,6 +236,7 @@
       } finally {
         this._syncing = false;
       }
+      if (this._resync && this.status === 'synced') return this.sync();
     }
 
     upsert(fields) {
