@@ -129,3 +129,56 @@ test('server rejects bad input and duplicate users', async (t) => {
   for (let i = 0; i < 10; i++) await post('/api/login', { username: 'bob', authKey: Buffer.alloc(32, 1).toString('base64') });
   assert.equal((await post('/api/login', { username: 'bob', authKey })).status, 429); // rate limited
 });
+
+test('edits made while a sync is in flight are not lost', async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudvault-'));
+  const server = createServer({ dataDir });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = 'http://127.0.0.1:' + server.address().port;
+  t.after(() => { server.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const creds = { username: 'carol', password: 'correct horse battery', serverUrl: url };
+
+  current = new MemStorage();
+  const A = new Store();
+  await A.unlock(Object.assign({ create: true }, creds));
+  await idle(A);
+
+  // Make one upload slow and add a second entry while it is in flight.
+  // 让某次上传变慢，并在上传过程中再新增一个条目。
+  const put = A.api.putVault.bind(A.api);
+  let release, entered;
+  const gate = new Promise((r) => { release = r; });
+  const inFlight = new Promise((r) => { entered = r; });
+  A.api.putVault = async (...args) => { A.api.putVault = put; entered(); await gate; return put(...args); };
+  await A.upsert({ title: 'First', password: '1' });
+  await inFlight; // the upload of "First" has been sealed and sent
+  await A.upsert({ title: 'Second', password: '2' });
+  release();
+  await idle(A);
+  assert.equal(A.status, 'synced');
+  assert.equal(A.dirty, false);
+
+  // A fresh device must see both entries on the server.
+  // 新设备必须能从服务器上看到两个条目。
+  current = new MemStorage();
+  const B = new Store();
+  await B.unlock(creds);
+  await idle(B);
+  assert.deepEqual(B.entries.map((e) => e.title).sort(), ['First', 'Second']);
+});
+
+test('server limits registrations per IP and rejects malformed paths', async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudvault-'));
+  const server = createServer({ dataDir, registerLimit: 2 });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = 'http://127.0.0.1:' + server.address().port;
+  t.after(() => { server.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const authKey = Buffer.alloc(32, 7).toString('base64');
+  const reg = (username) => fetch(url + '/api/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, authKey }) });
+
+  assert.equal((await reg('u1')).status, 201);
+  assert.equal((await reg('u1')).status, 409); // duplicates don't count toward the limit
+  assert.equal((await reg('u2')).status, 201);
+  assert.equal((await reg('u3')).status, 429);
+  assert.equal((await fetch(url + '/%E0%A4%A')).status, 400); // bad %-escape → 400, not 500
+});

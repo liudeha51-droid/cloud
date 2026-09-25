@@ -38,7 +38,7 @@ AI actions: redact(entries) ─▶ Claude API (your key)  or  Ollama on localhos
 | `server/` | Zero-dependency sync server (also serves the PWA) + Dockerfile |
 | `src-tauri/` | Native shell for Windows / Linux / macOS / Android / iOS |
 | `test/` | `node --test` suites: crypto, fuzzy search, redaction, two-device sync & server hardening |
-| `.github/workflows/` | CI tests, desktop releases, Android APK, iOS build |
+| `.github/workflows/` | CI tests, release builds (desktop, Android, web, Docker), iOS build |
 
 ## Quick start
 
@@ -68,12 +68,14 @@ Once your account exists, set `ALLOW_REGISTRATION=false` in `docker-compose.yml`
 
 | Platform | How |
 |---|---|
-| **Windows** | `.msi` / `.exe` from GitHub Releases |
-| **Linux** | `.AppImage`, `.deb` or `.rpm` from Releases |
-| **SteamOS / Steam Deck** | Desktop Mode → download the `.AppImage` → right-click → Properties → *Is executable* → in Steam: *Add a Non-Steam Game* to launch it from Gaming Mode. Touchscreen + on-screen keyboard (Steam + X) work. |
-| **Android** | `.apk` from Releases (sideload), or open your server URL in Chrome → *Install app* |
+| **Windows 10/11** | `…-windows-x64-setup.exe` (or `.msi`, or `-portable.exe` with no install) from GitHub Releases. Also 32-bit (`x86`) and ARM64 builds. |
+| **Windows 7/8 / no WebView2** | `…-windows-lite.exe`: a tiny launcher that opens the app in Edge or your default browser |
+| **macOS** | `…-macos-universal.dmg` (any Mac), or the smaller `arm64` (Apple Silicon) / `x64` (Intel) `.dmg` |
+| **Linux** | `.AppImage` (any distro), `.deb` or `.rpm`, for x64 and ARM64 |
+| **SteamOS / Steam Deck** | Desktop Mode → download the x64 `.AppImage` → right-click → Properties → *Is executable* → in Steam: *Add a Non-Steam Game* to launch it from Gaming Mode. Touchscreen + on-screen keyboard (Steam + X) work. |
+| **Android 7+** | `…-android-universal.apk` from Releases (sideload), or a smaller per-CPU `.apk` (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`), or open your server URL in Chrome → *Install app* |
 | **iOS / iPadOS** | Open your server URL in Safari → Share → *Add to Home Screen* (PWA, no Apple account needed), or build the native app (below) |
-| **Any browser** | Open your server URL |
+| **Any browser** | Open your server URL, or host the static files from `…-web.zip` anywhere |
 
 ### 3. Create your vault
 
@@ -150,8 +152,8 @@ gh repo create cloudvault --private --source . --push
 Then:
 
 - **CI** runs tests on every push.
-- **Releases:** create and push a version tag (`git tag v0.1.0`, then `git push --tags`). *Release desktop* builds Windows/Linux/macOS installers into a draft release, and *Android APK* attaches an APK. Review the draft and publish it.
-- **Signed Android release (optional):** add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Without them you get a debug-signed APK, which is fine for sideloading.
+- **Releases:** create and push a version tag (`git tag v0.1.0`, then `git push --tags`). The *Release* workflow builds every download into a draft release: Windows (x64/x86/ARM64 installers, `.msi`, portable and lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, and `SHA256SUMS.txt`. It also pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`. Review the draft and publish it. The notes come from `.github/release-notes.md`.
+- **Signed Android release (optional):** add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. With them you also get a signed `.aab` for Google Play. Without them you get debug-signed APKs, which are fine for sideloading.
 - **iOS:** add `APPLE_DEVELOPMENT_TEAM`, `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`, then run the *iOS* workflow manually. This requires a paid Apple Developer account. Otherwise, use the PWA.
 
 ## Security notes
