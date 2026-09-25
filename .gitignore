@@ -23,3 +23,5 @@ Thumbs.db
 windows-launcher/*.exe
 # local editor/agent settings / 本地编辑器与助手设置
 .claude/
+# source snapshots (use git / GitHub releases instead) / 源码快照（请使用 git 或 GitHub Releases）
+*.zip
