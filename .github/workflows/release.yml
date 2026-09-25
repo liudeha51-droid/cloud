@@ -68,8 +68,13 @@ jobs:
             .github/release-notes.md > "$RUNNER_TEMP/notes.md"
           # --target: on a manual run the tag doesn't exist yet; publishing creates it on this commit.
           # --target：手动运行时标签还不存在，发布时会在这个提交上创建它。
-          gh release view "$TAG" >/dev/null 2>&1 || \
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)" = true ]; then
+            # re-run of an unpublished release: point it at this commit so the tag includes any fixes
+            # 重新运行尚未发布的版本：让它指向当前提交，确保标签包含修复
+            gh release edit "$TAG" --target "$GITHUB_SHA"
+          elif ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "CloudVault $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
 
   desktop:
     needs: release
@@ -118,7 +123,8 @@ jobs:
           B=$T/bundle
           N="CloudVault-${{ matrix.platform }}-${{ matrix.arch }}"
           mkdir -p dist
-          one() { f=$(ls $1 2>/dev/null | head -1); if [ -n "$f" ]; then cp "$f" "dist/$2"; fi; }
+          # copy the first file matching a glob, if any (e.g. no .msi for ARM64) / 复制第一个匹配的文件（如有）
+          one() { for f in $1; do if [ -e "$f" ]; then cp "$f" "dist/$2"; return 0; fi; done; }
           case ${{ matrix.platform }} in
             windows)
               one "$B/nsis/*-setup.exe" "$N-setup.exe"
