@@ -43,7 +43,10 @@ $w.Write($png); $w.Close()
 # --- 把 app/ 下的每个文件以 "app/<相对路径>" 的名称嵌入为资源 ---
 $resources = Get-ChildItem $app -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($app.Length).Replace('\', '/')
-  "/resource:`"$($_.FullName)`",app$rel"
+  # No embedded quotes: PowerShell 7 passes them through literally and csc rejects the path.
+  # PowerShell quotes the whole argument itself if the path contains spaces.
+  # 不要内嵌引号：PowerShell 7 会原样传递它们，导致 csc 拒绝该路径。
+  "/resource:$($_.FullName),app$rel"
 }
 
 # /codepage:65001 = read the source as UTF-8 (it contains Chinese comments) / 以 UTF-8 读取源码（其中有中文注释）
