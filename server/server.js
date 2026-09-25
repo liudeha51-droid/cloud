@@ -21,6 +21,9 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { promisify } = require('node:util');
+
+const scrypt = promisify(crypto.scrypt);
 
 const MAX_BODY = 10 * 1024 * 1024; // 10 MB encrypted vault is thousands of entries / 10 MB 的加密密码库足够容纳数千个条目
 const TOKEN_TTL = 12 * 3600 * 1000;
@@ -58,7 +61,9 @@ function createServer(opts = {}) {
 
   const userId = (u) => crypto.createHash('sha256').update('user:' + u).digest('hex');
   const vaultFile = (u) => path.join(dataDir, 'vaults', userId(u) + '.json');
-  const hashAuth = (authKey, salt) => crypto.scryptSync(authKey, salt, 32, { N: 16384, r: 8, p: 1 });
+  // Async scrypt runs on the libuv thread pool, so a burst of logins can't freeze the event loop.
+  // 异步 scrypt 在 libuv 线程池中执行，大量登录请求不会卡住事件循环。
+  const hashAuth = (authKey, salt) => scrypt(authKey, salt, 32, { N: 16384, r: 8, p: 1 });
 
   function signToken(username) {
     const payload = Buffer.from(JSON.stringify({ u: username, exp: Date.now() + TOKEN_TTL })).toString('base64url');
@@ -75,18 +80,32 @@ function createServer(opts = {}) {
     return data.exp > Date.now() && users[data.u] ? data.u : null;
   }
 
+  // Fixed-window rate limiter. Expired windows are swept so the map can't grow without bound.
+  // 固定窗口限流器。过期的窗口会被清理，避免 Map 无限增长。
+  function limiter(max, windowMs) {
+    const hits = new Map();
+    const expired = (h, now) => now - h.first >= windowMs;
+    return {
+      blocked(key) {
+        const h = hits.get(key);
+        return !!h && h.count >= max && !expired(h, Date.now());
+      },
+      hit(key) {
+        const now = Date.now();
+        if (hits.size >= 10000) for (const [k, h] of hits) if (expired(h, now)) hits.delete(k);
+        const h = hits.get(key);
+        if (!h || expired(h, now)) hits.set(key, { count: 1, first: now });
+        else h.count++;
+      },
+      reset(key) { hits.delete(key); },
+    };
+  }
   // Brute-force protection: max 10 failed logins per (ip, username) per 15 min.
   // 防暴力破解：每个（IP，用户名）组合 15 分钟内最多失败 10 次。
-  const failures = new Map();
-  function tooMany(key) {
-    const f = failures.get(key);
-    return f && f.count >= 10 && Date.now() - f.first < 15 * 60000;
-  }
-  function recordFailure(key) {
-    const f = failures.get(key);
-    if (!f || Date.now() - f.first > 15 * 60000) failures.set(key, { count: 1, first: Date.now() });
-    else f.count++;
-  }
+  const loginFailures = limiter(10, 15 * 60000);
+  // Account-creation spam protection: max 20 registrations per IP per hour.
+  // 防批量注册：每个 IP 每小时最多注册 20 个账户。
+  const registrations = limiter(opts.registerLimit ?? 20, 3600 * 1000);
 
   function send(res, status, body, headers) {
     res.writeHead(status, Object.assign({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, headers));
@@ -123,10 +142,13 @@ function createServer(opts = {}) {
     if (url.pathname === '/api/register' && req.method === 'POST') {
       if (!allowRegistration) return send(res, 403, { error: 'Registration is disabled on this server' });
       const { username, authKey } = validCreds(await readJson(req));
+      if (registrations.blocked(ip)) return send(res, 429, { error: 'Too many new accounts, try again later' });
+      const salt = crypto.randomBytes(16);
+      const hash = (await hashAuth(authKey, salt)).toString('hex');
       return serial(async () => {
         if (users[username]) return send(res, 409, { error: 'Username already taken' });
-        const salt = crypto.randomBytes(16);
-        users[username] = { salt: salt.toString('hex'), hash: hashAuth(authKey, salt).toString('hex'), created: Date.now() };
+        registrations.hit(ip);
+        users[username] = { salt: salt.toString('hex'), hash, created: Date.now() };
         await atomicWrite(usersFile, JSON.stringify(users, null, 1));
         send(res, 201, { ok: true });
       });
@@ -135,15 +157,15 @@ function createServer(opts = {}) {
     if (url.pathname === '/api/login' && req.method === 'POST') {
       const { username, authKey } = validCreds(await readJson(req));
       const key = ip + '|' + username;
-      if (tooMany(key)) return send(res, 429, { error: 'Too many attempts, try again in 15 minutes' });
+      if (loginFailures.blocked(key)) return send(res, 429, { error: 'Too many attempts, try again in 15 minutes' });
       const u = users[username];
       // Hash even for unknown users so response timing doesn't reveal which usernames exist.
       // 即使用户不存在也照样计算哈希，避免通过响应时间判断用户名是否存在。
       const salt = u ? Buffer.from(u.salt, 'hex') : crypto.randomBytes(16);
-      const got = hashAuth(authKey, salt);
+      const got = await hashAuth(authKey, salt);
       const ok = u && crypto.timingSafeEqual(got, Buffer.from(u.hash, 'hex'));
-      if (!ok) { recordFailure(key); return send(res, 401, { error: 'Wrong username or master password' }); }
-      failures.delete(key);
+      if (!ok) { loginFailures.hit(key); return send(res, 401, { error: 'Wrong username or master password' }); }
+      loginFailures.reset(key);
       return send(res, 200, { token: signToken(username) });
     }
 
@@ -176,7 +198,9 @@ function createServer(opts = {}) {
 
   async function serveStatic(req, res, url) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method not allowed' });
-    let rel = decodeURIComponent(url.pathname);
+    let rel;
+    try { rel = decodeURIComponent(url.pathname); }
+    catch (e) { return send(res, 400, { error: 'Bad request' }); } // malformed %-escape / 非法的百分号转义
     if (rel.endsWith('/')) rel += 'index.html';
     const file = path.resolve(staticDir, '.' + path.posix.normalize(rel));
     if (!file.startsWith(staticDir + path.sep)) return send(res, 403, { error: 'Forbidden' }); // path traversal guard / 防止路径穿越

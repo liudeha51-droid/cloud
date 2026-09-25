@@ -1,0 +1,313 @@
+name: Release
+
+# Push a tag like v0.1.0 to build every download below and attach it to a draft GitHub Release.
+# Run it manually (Actions → Release → Run workflow) to get the same files as workflow artifacts only.
+# 推送 v0.1.0 这样的标签，即可构建下面所有的下载包并附加到 GitHub 草稿发布（Release）中。
+# 手动运行（Actions → Release → Run workflow）时，同样的文件只会作为工作流构件（artifacts）上传。
+#
+#   Windows   x64 / x86 (32-bit) / ARM64 : setup .exe (NSIS), .msi (x64/x86), portable .exe, "lite" .exe
+#   macOS     universal / Apple Silicon / Intel : .dmg and zipped .app
+#   Linux     x64 / ARM64 : .AppImage (also SteamOS), .deb, .rpm
+#   Android   universal + per-ABI .apk (arm64-v8a, armeabi-v7a, x86, x86_64), .aab when signing secrets exist
+#   Web       static PWA .zip, self-hosted server .zip/.tar.gz, multi-arch Docker image on GHCR
+#   SHA256SUMS.txt for everything
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  # Create the draft release once, so parallel jobs don't race to create it.
+  # 只创建一次草稿发布，避免并行任务同时去创建而冲突。
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Work out the version / 确定版本号
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="$(node -p "require('./src-tauri/tauri.conf.json').version")-dev"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Create draft release / 创建草稿发布
+        if: github.ref_type == 'tag'
+        run: |
+          sed -e "s/{{VERSION}}/${{ steps.v.outputs.version }}/g" -e "s#{{REPO}}#${GITHUB_REPOSITORY,,}#g" \
+            .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --draft --title "CloudVault $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+
+  desktop:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest,   platform: windows, arch: x64,       target: x86_64-pc-windows-msvc,    args: '' }
+          - { os: windows-latest,   platform: windows, arch: x86,       target: i686-pc-windows-msvc,      args: '' }
+          # WiX (.msi) can't target ARM64, so NSIS only / WiX（.msi）不支持 ARM64，只打 NSIS 安装包
+          - { os: windows-latest,   platform: windows, arch: arm64,     target: aarch64-pc-windows-msvc,   args: '--bundles nsis' }
+          - { os: ubuntu-22.04,     platform: linux,   arch: x64,       target: x86_64-unknown-linux-gnu,  args: '' }
+          - { os: ubuntu-22.04-arm, platform: linux,   arch: arm64,     target: aarch64-unknown-linux-gnu, args: '' }
+          - { os: macos-latest,     platform: macos,   arch: universal, target: universal-apple-darwin,    args: '' }
+          - { os: macos-latest,     platform: macos,   arch: arm64,     target: aarch64-apple-darwin,      args: '' }
+          - { os: macos-latest,     platform: macos,   arch: x64,       target: x86_64-apple-darwin,       args: '' }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      V: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
+      - name: Linux system dependencies / Linux 系统依赖
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf file xdg-utils
+      - run: npm install
+      - name: Generate app icons from app/icon.svg / 由 app/icon.svg 生成图标
+        run: npx tauri icon app/icon.svg
+      - name: Build / 构建
+        run: npx tauri build --target ${{ matrix.target }} ${{ matrix.args }}
+      - name: Collect downloads with consistent names / 用统一的文件名收集下载包
+        run: |
+          T=src-tauri/target/${{ matrix.target }}/release
+          B=$T/bundle
+          N="CloudVault-$V-${{ matrix.platform }}-${{ matrix.arch }}"
+          mkdir -p dist
+          one() { f=$(ls $1 2>/dev/null | head -1); if [ -n "$f" ]; then cp "$f" "dist/$2"; fi; }
+          case ${{ matrix.platform }} in
+            windows)
+              one "$B/nsis/*-setup.exe" "$N-setup.exe"
+              one "$B/msi/*.msi"        "$N.msi"
+              # the bare app binary runs without installing (needs WebView2, built into Windows 10/11)
+              # 直接运行的免安装版（需要 WebView2，Windows 10/11 已自带）
+              cp "$T/cloudvault.exe" "dist/$N-portable.exe" ;;
+            linux)
+              one "$B/appimage/*.AppImage" "$N.AppImage"
+              one "$B/deb/*.deb"           "$N.deb"
+              one "$B/rpm/*.rpm"           "$N.rpm" ;;
+            macos)
+              one "$B/dmg/*.dmg" "$N.dmg"
+              ditto -c -k --keepParent "$B/macos/CloudVault.app" "dist/$N.app.zip" ;;
+          esac
+          ls -l dist
+          [ -n "$(ls dist)" ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudvault-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/*
+      - name: Attach to release / 附加到发布
+        if: github.ref_type == 'tag'
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  # Tiny launcher for older Windows (7/8) or machines without WebView2: serves the app on localhost
+  # and opens it in Edge (or the default browser). Built with the C# compiler that ships with Windows.
+  # 适用于旧版 Windows（7/8）或没有 WebView2 的电脑的小型启动器：在本机提供应用并用 Edge（或默认浏览器）打开。
+  # 使用 Windows 自带的 C# 编译器构建。
+  windows-lite:
+    needs: release
+    runs-on: windows-latest
+    env:
+      V: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build / 构建
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          ./windows-launcher/build.ps1 -Out "dist/CloudVault-$env:V-windows-lite.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudvault-windows-lite
+          path: dist/*
+      - name: Attach to release / 附加到发布
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  android:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      V: ${{ needs.release.outputs.version }}
+      NDK_VERSION: 27.2.12479018
+      # If you add these secrets, signed release APKs + an .aab (for Google Play) are built;
+      # otherwise debug-signed APKs you can sideload.
+      # 如果配置了这些密钥，就会构建签名的正式版 APK 和 .aab（用于 Google Play）；否则构建可侧载安装的调试签名 APK。
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          # the default also installs the legacy "tools" package, which no longer exists
+          # 默认还会安装已被移除的旧版 "tools" 包，所以这里只装 platform-tools
+          packages: 'platform-tools'
+      - name: Install NDK
+        run: |
+          sdkmanager "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm install
+      - run: npx tauri icon app/icon.svg
+      - run: npx tauri android init --ci
+      - name: Build APKs (universal + per-ABI) and AAB / 构建 APK（通用版 + 各 ABI 版）和 AAB
+        run: |
+          OUT=src-tauri/gen/android/app/build/outputs
+          mkdir -p dist
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            MODE=""
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            BT="$ANDROID_SDK_ROOT/build-tools/$(ls "$ANDROID_SDK_ROOT/build-tools" | sort -V | tail -1)"
+          else
+            MODE="--debug"
+          fi
+          # Gradle ABI folder → the name users recognise / Gradle 的 ABI 目录名 → 用户熟悉的名称
+          abi_name() { case "$1" in arm64) echo arm64-v8a ;; arm) echo armeabi-v7a ;; *) echo "$1" ;; esac; }
+          collect() {
+            for f in $(find "$OUT/apk" -name '*.apk'); do
+              abi=$(abi_name "$(basename "$(dirname "$(dirname "$f")")")")
+              dest="dist/CloudVault-$V-android-$abi.apk"
+              if [ -n "$MODE" ]; then cp "$f" "$dest"; else
+                "$BT/zipalign" -f -p 4 "$f" "$RUNNER_TEMP/aligned.apk"
+                "$BT/apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+                  --ks-pass env:ANDROID_KEY_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out "$dest" "$RUNNER_TEMP/aligned.apk"
+              fi
+            done
+            rm -rf "$OUT/apk"
+          }
+          npx tauri android build --apk $MODE
+          collect
+          npx tauri android build --apk --split-per-abi $MODE
+          collect
+          if [ -z "$MODE" ]; then
+            npx tauri android build --aab
+            aab=$(find "$OUT/bundle" -name '*.aab' | head -1)
+            jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$RUNNER_TEMP/release.jks" \
+              -storepass:env ANDROID_KEY_PASSWORD -keypass:env ANDROID_KEY_PASSWORD \
+              -signedjar "dist/CloudVault-$V-android.aab" "$aab" "$ANDROID_KEY_ALIAS"
+            rm "$RUNNER_TEMP/release.jks"
+          fi
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudvault-android
+          path: dist/*
+      - name: Attach to release / 附加到发布
+        if: github.ref_type == 'tag'
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  # Platform-independent downloads: the PWA and the self-hosted sync server.
+  # 与平台无关的下载包：PWA 网页应用和自托管同步服务器。
+  web:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      V: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package / 打包
+        run: |
+          mkdir -p dist stage
+          # static PWA: host on any web server or open index.html / 静态 PWA：可放到任意网页服务器上
+          (cd app && zip -qr "../dist/CloudVault-$V-web.zip" .)
+          # sync server + app: `node server/server.js` (Node >= 20) or `docker compose up -d`
+          # 同步服务器 + 应用：`node server/server.js`（Node >= 20）或 `docker compose up -d`
+          S="stage/CloudVault-$V-server"
+          mkdir -p "$S"
+          cp -r app server docker-compose.yml package.json README.md LICENSE "$S/"
+          rm -rf "$S/server/data"
+          (cd stage && zip -qr "../dist/CloudVault-$V-server.zip" "CloudVault-$V-server" \
+            && tar -czf "../dist/CloudVault-$V-server.tar.gz" "CloudVault-$V-server")
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudvault-web
+          path: dist/*
+      - name: Attach to release / 附加到发布
+        if: github.ref_type == 'tag'
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  # Server image for x86-64 servers, ARM64 (Raspberry Pi 4/5, Apple Silicon, cloud ARM) and 32-bit ARM (older Pis).
+  # 服务器镜像：适用于 x86-64 服务器、ARM64（树莓派 4/5、Apple Silicon、云端 ARM）和 32 位 ARM（旧款树莓派）。
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.ref_type == 'tag'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: ${{ github.ref_type == 'tag' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # Runs even if some builds failed, so whatever did build still gets checksums.
+  # 即使部分构建失败也会运行，确保已构建好的文件都有校验和。
+  checksums:
+    needs: [release, desktop, windows-lite, android, web]
+    if: always() && github.ref_type == 'tag' && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: SHA256SUMS.txt
+        run: |
+          mkdir assets && cd assets
+          gh release download "$GITHUB_REF_NAME"
+          rm -f SHA256SUMS.txt
+          sha256sum * | tee SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
