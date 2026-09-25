@@ -136,3 +136,47 @@ pre.preview { max-height: 50vh; overflow: auto; background: var(--surface-2); pa
   .detail:empty { display: none; }
   .back { display: inline-flex; margin-bottom: 12px; }
 }
+
+/* ---------- SteamOS & PC handhelds (flags set by js/platform.js) / SteamOS 与 PC 掌机（标志由 js/platform.js 设置） ---------- */
+/* Steam Gaming Mode is always dark, whatever the desktop theme says. / Steam 游戏模式始终为深色，与桌面主题无关。 */
+:root[data-gamemode] {
+  --bg: #0f1115; --surface: #171a21; --surface-2: #20242d; --border: #2c313c;
+  --text: #e8eaef; --muted: #98a0b0; --accent: #5c7cfa; --accent-text: #ffffff;
+  --ai: #9775fa; --danger: #f06595; --ok: #51cf66; --warn: #ff922b;
+  color-scheme: dark;
+}
+/* OLED panels (Steam Deck OLED, Legion Go 2): true black pixels are off → less battery, no grey glow in the dark.
+   OLED 屏幕（Steam Deck OLED、Legion Go 2）：纯黑像素不发光 → 更省电，暗处没有灰色泛光。 */
+:root[data-oled][data-gamemode] { --bg: #000; --surface: #0b0c10; --surface-2: #16181e; --border: #23262e; }
+@media (prefers-color-scheme: dark) {
+  :root[data-oled] { --bg: #000; --surface: #0b0c10; --surface-2: #16181e; --border: #23262e; }
+  /* Steam Deck LCD has a narrow colour gamut and washes out greys: lift secondary text and borders.
+     Steam Deck LCD 色域较窄，灰色容易发白：提高次要文字和边框的对比度。 */
+  :root[data-device="deck-lcd"] { --muted: #b0b8c6; --border: #3a4050; }
+}
+:root[data-device="deck-lcd"][data-gamemode] { --muted: #b0b8c6; --border: #3a4050; }
+
+/* Handheld screens (7–8.8", held at arm's length): bigger text and thumb-sized targets.
+   掌机屏幕（7–8.8 英寸，手持距离观看）：更大的文字和适合拇指的点击区域。 */
+:root[data-handheld] { --tap: 52px; }
+:root[data-handheld] body { font-size: 16px; }
+:root[data-handheld] .item { min-height: 64px; }
+:root[data-handheld] .chips button { min-height: 44px; padding: 0 16px; }
+:root[data-handheld] .field button { min-height: 44px; min-width: 44px; }
+:root[data-handheld] .checks input { width: 26px; min-height: 26px; }
+:root[data-handheld] .lang-select { min-height: 44px; }
+/* Handheld CPUs/GPUs share a small power budget: skip decorative animation. / 掌机功耗预算有限：去掉装饰性动画。 */
+:root[data-handheld] .meter span { transition: none; }
+
+/* Gamepad focus must be obvious from the couch. / 手柄焦点要在远处也能看清。 */
+:root[data-padnav] :focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+:root[data-padnav] .item:focus { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+.pad-hints { display: none; }
+:root[data-padhints] .pad-hints {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 4; display: flex; gap: 18px; justify-content: flex-end; flex-wrap: wrap;
+  padding: 6px 16px calc(6px + env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--border);
+  font-size: 13px; color: var(--muted);
+}
+:root[data-padhints] .app { height: calc(100% - 34px); }
+.pad-hints .glyph { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: var(--surface-2); color: var(--text); font-size: 11px; }

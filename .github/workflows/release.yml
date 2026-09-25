@@ -244,6 +244,12 @@ jobs:
           mkdir -p dist stage
           # static PWA: host on any web server or open index.html / 静态 PWA：可放到任意网页服务器上
           (cd app && zip -qr "../dist/CloudVault-$V-web.zip" .)
+          # SteamOS / Bazzite / ChimeraOS installer: downloads + verifies the AppImage from this repo's releases.
+          # Fixed file name so releases/latest/download/cloudvault-steamos-install.sh always works.
+          # SteamOS / Bazzite / ChimeraOS 安装脚本：从本仓库的发布中下载并校验 AppImage。
+          # 文件名固定，这样 releases/latest/download/cloudvault-steamos-install.sh 始终可用。
+          sed "s#{{REPO}}#${GITHUB_REPOSITORY}#g" packaging/steamos/install.sh > dist/cloudvault-steamos-install.sh
+          chmod 755 dist/cloudvault-steamos-install.sh
           # sync server + app: `node server/server.js` (Node >= 20) or `docker compose up -d`
           # 同步服务器 + 应用：`node server/server.js`（Node >= 20）或 `docker compose up -d`
           S="stage/CloudVault-$V-server"
