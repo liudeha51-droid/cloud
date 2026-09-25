@@ -16,7 +16,7 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("CloudVault")]
 [assembly: AssemblyProduct("CloudVault")]
-[assembly: AssemblyVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.2.0.0")]
 
 static class CloudVaultLauncher
 {

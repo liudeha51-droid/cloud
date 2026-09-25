@@ -1,6 +1,6 @@
 {
   "name": "cloudvault",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Zero-knowledge cloud password manager for Android, iOS, Windows, Linux and SteamOS with fuzzy search and one-click personal AI.",
   "license": "MIT",
