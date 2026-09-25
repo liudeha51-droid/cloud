@@ -1,0 +1,23 @@
+{
+  "name": "cloudvault",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-knowledge cloud password manager for Android, iOS, Windows, Linux and SteamOS with fuzzy search and one-click personal AI.",
+  "license": "MIT",
+  "scripts": {
+    "server": "node server/server.js",
+    "test": "node --test",
+    "tauri": "tauri",
+    "icons": "tauri icon app/icon.svg",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "android": "tauri android build --apk",
+    "ios": "tauri ios build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

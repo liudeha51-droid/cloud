@@ -1,0 +1,45 @@
+name: iOS
+
+# iOS apps must be signed with an Apple Developer account. Add these repository secrets:
+#   APPLE_DEVELOPMENT_TEAM            your 10-character Team ID
+#   IOS_CERTIFICATE / IOS_CERTIFICATE_PASSWORD / IOS_MOBILE_PROVISION  (see README → iOS)
+# No Apple account? Use the PWA instead: open your sync server in Safari → Share → Add to Home Screen.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    env:
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing secrets
+        run: |
+          if [ -z "$APPLE_DEVELOPMENT_TEAM" ]; then
+            echo "::error::Set the APPLE_DEVELOPMENT_TEAM secret (and signing secrets) first - see README."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm install
+      - run: npx tauri icon app/icon.svg
+      - run: npx tauri ios init --ci
+      - run: npx tauri ios build --export-method app-store-connect
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudvault-ios
+          path: src-tauri/gen/apple/build/**/*.ipa

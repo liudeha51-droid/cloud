@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>CloudVault</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ============ LOCK SCREEN ============ -->
+  <main id="lock" class="lock">
+    <form id="lockForm" class="card lock-card" autocomplete="off">
+      <div class="brand"><img src="icon.svg" alt="" width="44" height="44"><div><h1>CloudVault</h1><p class="muted">Zero-knowledge password manager</p></div></div>
+      <label>Username<input id="lUser" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+      <label>Master password<input id="lPass" type="password" autocomplete="current-password" required></label>
+      <details id="serverBox">
+        <summary>Cloud sync server <span class="muted">(optional)</span></summary>
+        <label>Server URL<input id="lServer" type="url" placeholder="https://vault.example.com" autocapitalize="off" spellcheck="false"></label>
+        <p class="muted small">Leave empty for a device-only vault. Your server only ever receives encrypted data.</p>
+      </details>
+      <p id="lErr" class="error" role="alert" hidden></p>
+      <div class="row">
+        <button id="btnUnlock" class="primary grow" type="submit">Unlock</button>
+        <button id="btnCreate" type="button" class="grow">Create vault</button>
+      </div>
+      <p class="muted small center">Your master password cannot be recovered. Nobody — not even the server — can read your vault.</p>
+    </form>
+  </main>
+
+  <!-- ============ MAIN APP ============ -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <img class="logo" src="icon.svg" alt="CloudVault" width="32" height="32">
+      <div class="search">
+        <input id="q" type="search" placeholder="Search (typos OK)…   Ctrl+K" autocomplete="off" spellcheck="false" aria-label="Search vault">
+        <button id="btnAsk" class="ai-btn" title="Ask your AI in plain words, e.g. &quot;where do I pay my phone bill&quot; (Shift+Enter)">✨<span class="lbl"> Ask AI</span></button>
+      </div>
+      <span id="syncPill" class="pill" title="Sync status">local</span>
+      <nav class="actions">
+        <button id="btnNew" class="primary">＋<span class="lbl"> New</span></button>
+        <button id="btnAudit" title="One-click AI security audit">🛡<span class="lbl"> Audit</span></button>
+        <button id="btnOrganize" title="One-click AI organize: folders &amp; tags">🏷<span class="lbl"> Organize</span></button>
+        <button id="btnGen" title="Password generator">🎲</button>
+        <button id="btnSettings" title="Settings">⚙</button>
+        <button id="btnLock" title="Lock (Ctrl+L)">🔒</button>
+      </nav>
+    </header>
+    <div id="folders" class="chips" role="toolbar" aria-label="Folders"></div>
+    <div id="aiBanner" class="ai-banner" hidden></div>
+    <div class="split">
+      <section id="list" class="list" aria-label="Vault items"></section>
+      <section id="detail" class="detail" aria-live="polite"></section>
+    </div>
+  </div>
+
+  <!-- ============ DIALOGS ============ -->
+  <dialog id="dlgEdit">
+    <form id="editForm" method="dialog" class="dlg">
+      <h2 id="editTitle">New item</h2>
+      <label>Title<input name="title" required></label>
+      <label>Website<input name="url" placeholder="example.com" autocapitalize="off" spellcheck="false"></label>
+      <label>Username / email<input name="username" autocapitalize="off" spellcheck="false"></label>
+      <label>Password
+        <div class="row"><input name="password" type="password" class="grow mono" autocomplete="new-password">
+          <button type="button" data-act="toggle">👁</button><button type="button" data-act="gen">🎲</button></div>
+        <div class="meter"><span id="editMeter"></span></div><small id="editMeterLabel" class="muted"></small>
+      </label>
+      <div class="row">
+        <label class="grow">Folder<input name="folder" list="folderList"></label>
+        <label class="grow">Tags<input name="tags" placeholder="comma, separated"></label>
+      </div>
+      <datalist id="folderList"></datalist>
+      <label>Notes<textarea name="notes" rows="3"></textarea></label>
+      <p id="editErr" class="error" hidden></p>
+      <div class="row">
+        <button type="button" data-act="suggest" class="ai-btn">✨ Suggest</button>
+        <span class="grow"></span>
+        <button type="button" data-act="cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgGen">
+    <div class="dlg">
+      <h2>Password generator</h2>
+      <output id="genOut" class="gen-out mono"></output>
+      <div class="meter"><span id="genMeter"></span></div>
+      <label>Length <b id="genLenVal">20</b><input id="genLen" type="range" min="8" max="64" value="20"></label>
+      <div class="checks">
+        <label><input type="checkbox" id="genLower" checked> a-z</label>
+        <label><input type="checkbox" id="genUpper" checked> A-Z</label>
+        <label><input type="checkbox" id="genDigits" checked> 0-9</label>
+        <label><input type="checkbox" id="genSymbols" checked> !@#</label>
+      </div>
+      <p class="muted small">Generated on-device with a cryptographically secure RNG — never by AI.</p>
+      <div class="row"><button id="genAgain">↻ Regenerate</button><span class="grow"></span>
+        <button id="genClose">Close</button><button id="genCopy" class="primary">Copy</button><button id="genUse" class="primary" hidden>Use</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="dlgSettings">
+    <form id="setForm" method="dialog" class="dlg">
+      <h2>Settings</h2>
+      <fieldset>
+        <legend>✨ Personal AI</legend>
+        <label>Provider
+          <select name="provider">
+            <option value="anthropic">Claude (Anthropic API)</option>
+            <option value="ollama">Local model (Ollama — fully offline)</option>
+          </select>
+        </label>
+        <div data-for="anthropic">
+          <label>Anthropic API key<input name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
+          <label>Model<input name="model" placeholder="claude-opus-5"></label>
+        </div>
+        <div data-for="ollama">
+          <label>Ollama URL<input name="ollamaUrl" placeholder="http://localhost:11434"></label>
+          <label>Ollama model<input name="ollamaModel" placeholder="llama3.1"></label>
+        </div>
+        <p class="muted small">Stored inside your encrypted vault. AI only ever receives titles, domains, tags and password <em>statistics</em> — never passwords, usernames or notes. <a href="#" id="previewAi">Preview exactly what is sent</a>.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Security</legend>
+        <label>Auto-lock after (minutes)<input name="autoLock" type="number" min="1" max="240"></label>
+        <label>Clear clipboard after (seconds)<input name="clipClear" type="number" min="5" max="600"></label>
+      </fieldset>
+      <fieldset>
+        <legend>Data</legend>
+        <div class="row wrap">
+          <button type="button" data-act="syncNow">⟳ Sync now</button>
+          <button type="button" data-act="export">⬇ Encrypted backup</button>
+          <label class="button">⬆ Import CSV<input type="file" id="csvFile" accept=".csv,text/csv" hidden></label>
+          <button type="button" data-act="forget" class="danger">Forget this device</button>
+        </div>
+        <p class="muted small">CSV import understands Chrome, Edge, Firefox, Bitwarden and 1Password exports.</p>
+      </fieldset>
+      <div class="row"><span class="grow"></span><button type="button" data-act="cancel">Cancel</button><button type="submit" class="primary">Save</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgAi">
+    <div class="dlg">
+      <h2 id="aiTitle">AI</h2>
+      <div id="aiBody"></div>
+      <div class="row"><span class="grow"></span><button id="aiClose">Close</button><button id="aiApply" class="primary" hidden>Apply all</button></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="js/crypto.js"></script>
+  <script src="js/fuzzy.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

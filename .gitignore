@@ -1,0 +1,20 @@
+node_modules/
+package-lock.json
+# server data: encrypted vaults, user hashes and the token-signing secret
+server/data/
+# Tauri build output & generated platform projects/icons (recreated in CI)
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/
+# never commit exports / signing material
+*.csv
+cloudvault-backup-*.json
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+.env
+.DS_Store
+Thumbs.db
+# locally built launcher
+windows-launcher/*.exe
