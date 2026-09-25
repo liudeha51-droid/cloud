@@ -1,11 +1,11 @@
 // CloudVault lightweight Windows launcher (no Rust/Node needed to build — see build.ps1).
 // The app's files are embedded in the .exe. It serves them on http://localhost:47821 and
 // opens a chromeless Microsoft Edge app window with its own private profile.
-// The full native build (Tauri) is produced by the GitHub "Release desktop" workflow.
+// The full native build (Tauri) is produced by the GitHub "Release" workflow.
 // CloudVault 轻量级 Windows 启动器（编译无需 Rust/Node —— 见 build.ps1）。
 // 应用文件全部嵌入在 .exe 中，通过 http://localhost:47821 提供，
 // 并打开一个无地址栏的 Microsoft Edge 应用窗口（使用独立的私有配置文件）。
-// 完整的原生版本（Tauri）由 GitHub 的 "Release desktop" 工作流构建。
+// 完整的原生版本（Tauri）由 GitHub 的 "Release" 工作流构建。
 using System;
 using System.Diagnostics;
 using System.IO;
