@@ -34,10 +34,12 @@ AI actions: redact(entries) ─▶ Claude API (your key)  or  Ollama on localhos
 
 | Path | What |
 |---|---|
-| `app/` | The whole client: `index.html`, `styles.css`, `js/{crypto,fuzzy,store,ai,app}.js`, PWA manifest + service worker |
+| `app/` | The whole client: `index.html`, `styles.css`, `js/{crypto,fuzzy,store,ai,app,platform,gamepad}.js`, PWA manifest + service worker |
 | `server/` | Zero-dependency sync server (also serves the PWA) + Dockerfile |
+| `packaging/steamos/` | `install.sh`: downloads (with checksum) and installs the AppImage, and adds the Steam shortcut, on SteamOS, Bazzite and ChimeraOS. Published as `cloudvault-steamos-install.sh` in every release |
+| `docs/` | [`steamos-store-listing.md`](docs/steamos-store-listing.md): how to list on the Decky plugin store or Flathub (Discover) |
 | `src-tauri/` | Native shell for Windows / Linux / macOS / Android / iOS |
-| `test/` | `node --test` suites: crypto, fuzzy search, redaction, two-device sync & server hardening |
+| `test/` | `node --test` suites: crypto, fuzzy search, redaction, two-device sync & server hardening, SteamOS/handheld profiles |
 | `.github/workflows/` | CI tests, release builds (desktop, Android, web, Docker), iOS build |
 
 ## Quick start
@@ -72,7 +74,7 @@ Once your account exists, set `ALLOW_REGISTRATION=false` in `docker-compose.yml`
 | **Windows 7/8 / no WebView2** | `…-windows-lite.exe`: a tiny launcher that opens the app in Edge or your default browser |
 | **macOS** | `…-macos-universal.dmg` (any Mac), or the smaller `arm64` (Apple Silicon) / `x64` (Intel) `.dmg` |
 | **Linux** | `.AppImage` (any distro), `.deb` or `.rpm`, for x64 and ARM64 |
-| **SteamOS / Steam Deck** | Desktop Mode → download the x64 `.AppImage` → right-click → Properties → *Is executable* → in Steam: *Add a Non-Steam Game* to launch it from Gaming Mode. Touchscreen + on-screen keyboard (Steam + X) work. |
+| **SteamOS / Steam Deck** (+ Bazzite, ChimeraOS, Legion Go, ROG Ally) | Desktop Mode → Konsole: `curl -fsSL https://github.com/liudeha51-droid/cloud/releases/latest/download/cloudvault-steamos-install.sh | bash`. It downloads the latest AppImage, checks its SHA-256, installs to `~/Applications` and adds CloudVault to Steam for Gaming Mode. Run it again to update. See [SteamOS & handhelds](#steamos--handhelds). |
 | **Android 7+** | `…-android-universal.apk` from Releases (sideload), or a smaller per-CPU `.apk` (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`), or open your server URL in Chrome → *Install app* |
 | **iOS / iPadOS** | Open your server URL in Safari → Share → *Add to Home Screen* (PWA, no Apple account needed), or build the native app (below) |
 | **Any browser** | Open your server URL, or host the static files from `…-web.zip` anywhere |
@@ -84,6 +86,36 @@ On every other device, use the same username, password and server URL and click 
 Leave the server empty for a device-only vault.
 
 > ⚠️ Your master password **cannot be recovered**. Nobody (including the server) can decrypt your vault without it.
+
+## SteamOS & handhelds
+
+CloudVault detects the device and OS at startup ([`app/js/platform.js`](app/js/platform.js), fed by `platform_info` in [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs)) and tunes itself:
+
+| Detected | What changes |
+|---|---|
+| **Steam Gaming Mode** (gamescope) | Fullscreen, always-dark theme, on-screen button hints, Steam's keyboard opens when a text field is selected, WebKit DMA-BUF renderer off (prevents a black window under gamescope) |
+| **Steam Deck OLED** (`Galileo`), **Legion Go 2** | True-black dark theme: OLED pixels switch off, so it uses less battery and has no grey glow |
+| **Steam Deck LCD** (`Jupiter`) | Higher-contrast secondary text and borders for the LCD's narrower colour gamut |
+| **Any handheld** (Deck, Legion Go / Go S, ROG Ally, MSI Claw, AYANEO, GPD, OneXPlayer) | 52 px touch targets, 16 px text, gamepad navigation in Desktop Mode too, no decorative animation |
+| **SteamOS / Bazzite / ChimeraOS / HoloISO** | One-command install from Releases (verified download to `~/Applications`, since the root is read-only), Steam shortcut via `steamos-add-to-steam` |
+
+**Gamepad controls.** Set the controller layout to *Gamepad* or *Web Browser* (both work).
+
+| Button | Action |
+|---|---|
+| D-pad / left stick | Move focus |
+| A | Select (on a text field: open the keyboard) |
+| B | Back / close dialog / clear search |
+| X | Search + keyboard |
+| Y | Copy the selected (or top) item's password |
+| LB / RB | Previous / next folder |
+| View | Lock |
+| Start | Settings |
+| Right stick | Scroll |
+
+To log in to a game or launcher: press **Y** to copy, switch to the game, then paste with **Steam + X** or Ctrl+V. The clipboard auto-clears as usual.
+
+> **中文：** CloudVault 会自动识别 Steam Deck LCD/OLED、Legion Go、ROG Ally 等掌机和 SteamOS/Bazzite/ChimeraOS。在游戏模式下它会全屏显示，使用深色主题和手柄导航（Y 键复制密码）。OLED 屏幕使用纯黑主题以节省电量。
 
 ## Personal AI setup
 
@@ -152,7 +184,12 @@ gh repo create cloudvault --private --source . --push
 Then:
 
 - **CI** runs tests on every push.
-- **Releases:** create and push a version tag (`git tag v0.1.0`, then `git push --tags`). The *Release* workflow builds every download into a draft release: Windows (x64/x86/ARM64 installers, `.msi`, portable and lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, and `SHA256SUMS.txt`. It also pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`. Review the draft and publish it. The notes come from `.github/release-notes.md`.
+- **Releases:** push a version tag (`git tag v0.2.0`, then `git push origin v0.2.0`). The *Release* workflow:
+  1. stamps the version into the app, then builds every download: Windows (x64/x86/ARM64 installers, `.msi`, portable and lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, the SteamOS installer and `SHA256SUMS.txt`
+  2. uploads them to a draft release, checks that every link in the notes has a file, then **publishes** it
+  3. pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`
+
+  The Release page then has direct download links for each platform (from `.github/release-notes.md`) and every file under *Assets*. `…/releases/latest/download/<file>` links keep working across versions. Tags with a hyphen (`v0.3.0-beta.1`) become pre-releases. If a build fails, the release stays a draft: fix it, then *Re-run failed jobs* and it publishes.
 - **Signed Android release (optional):** add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. With them you also get a signed `.aab` for Google Play. Without them you get debug-signed APKs, which are fine for sideloading.
 - **iOS:** add `APPLE_DEVELOPMENT_TEAM`, `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`, then run the *iOS* workflow manually. This requires a paid Apple Developer account. Otherwise, use the PWA.
 
