@@ -184,7 +184,12 @@ gh repo create cloudvault --private --source . --push
 Then:
 
 - **CI** runs tests on every push.
-- **Releases:** create and push a version tag (`git tag v0.1.0`, then `git push --tags`). The *Release* workflow builds every download into a draft release: Windows (x64/x86/ARM64 installers, `.msi`, portable and lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, and `SHA256SUMS.txt`. It also pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`. Review the draft and publish it. The notes come from `.github/release-notes.md`.
+- **Releases:** push a version tag (`git tag v0.2.0`, then `git push origin v0.2.0`). The *Release* workflow:
+  1. stamps the version into the app, then builds every download: Windows (x64/x86/ARM64 installers, `.msi`, portable and lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, the SteamOS installer and `SHA256SUMS.txt`
+  2. uploads them to a draft release, checks that every link in the notes has a file, then **publishes** it
+  3. pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`
+
+  The Release page then has direct download links for each platform (from `.github/release-notes.md`) and every file under *Assets*. `…/releases/latest/download/<file>` links keep working across versions. Tags with a hyphen (`v0.3.0-beta.1`) become pre-releases. If a build fails, the release stays a draft: fix it, then *Re-run failed jobs* and it publishes.
 - **Signed Android release (optional):** add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. With them you also get a signed `.aab` for Google Play. Without them you get debug-signed APKs, which are fine for sideloading.
 - **iOS:** add `APPLE_DEVELOPMENT_TEAM`, `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`, then run the *iOS* workflow manually. This requires a paid Apple Developer account. Otherwise, use the PWA.
 

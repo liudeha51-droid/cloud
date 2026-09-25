@@ -1,8 +1,12 @@
 name: Release
 
-# Push a tag like v0.1.0 to build every download below and attach it to a draft GitHub Release.
+# Push a tag like v0.2.0 to build every download below, upload them as assets of a GitHub Release,
+# and publish that release once every build has succeeded, so the Release page offers direct downloads.
+# Tags with a hyphen (v0.2.0-beta.1) are published as pre-releases and never become "latest".
 # Run it manually (Actions → Release → Run workflow) to get the same files as workflow artifacts only.
-# 推送 v0.1.0 这样的标签，即可构建下面所有的下载包并附加到 GitHub 草稿发布（Release）中。
+# 推送 v0.2.0 这样的标签，即可构建下面所有的下载包，作为附件上传到 GitHub Release，
+# 并在所有构建成功后自动发布，让 Release 页面提供可直接下载的文件。
+# 带连字符的标签（v0.2.0-beta.1）会作为预发布版本发布，不会成为“最新版本”。
 # 手动运行（Actions → Release → Run workflow）时，同样的文件只会作为工作流构件（artifacts）上传。
 #
 #   Windows   x64 / x86 (32-bit) / ARM64 : setup .exe (NSIS), .msi (x64/x86), portable .exe, "lite" .exe
@@ -37,13 +41,21 @@ jobs:
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="$(node -p "require('./src-tauri/tauri.conf.json').version")-dev"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+      # Starts as a draft so nobody downloads a half-uploaded release; the `publish` job makes it public.
+      # {{DL}} becomes this tag's download URL, so every file in the notes is a direct download link.
+      # 先作为草稿创建，避免有人下载到未上传完的版本；由 `publish` 任务公开发布。
+      # {{DL}} 会替换为该标签的下载地址，让说明中的每个文件都是直接下载链接。
       - name: Create draft release / 创建草稿发布
         if: github.ref_type == 'tag'
         run: |
           sed -e "s/{{VERSION}}/${{ steps.v.outputs.version }}/g" -e "s#{{REPO}}#${GITHUB_REPOSITORY,,}#g" \
+            -e "s#{{DL}}#https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME#g" \
             .github/release-notes.md > "$RUNNER_TEMP/notes.md"
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --draft --title "CloudVault $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "CloudVault $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
 
   desktop:
     needs: release
@@ -83,6 +95,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf file xdg-utils
+      - name: Stamp the tag's version into the app / 把标签版本号写入应用
+        run: node .github/scripts/stamp-version.js "$V"
       - run: npm install
       - name: Generate app icons from app/icon.svg / 由 app/icon.svg 生成图标
         run: npx tauri icon app/icon.svg
@@ -181,6 +195,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+      - name: Stamp the tag's version into the app / 把标签版本号写入应用
+        run: node .github/scripts/stamp-version.js "$V"
       - run: npm install
       - run: npx tauri icon app/icon.svg
       - run: npx tauri android init --ci
@@ -303,8 +319,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  # Runs even if some builds failed, so whatever did build still gets checksums.
-  # 即使部分构建失败也会运行，确保已构建好的文件都有校验和。
+  # Runs even if some builds failed, so whatever did build still gets checksums (the release then stays a draft).
+  # 即使部分构建失败也会运行，确保已构建好的文件都有校验和（此时版本保持草稿状态）。
   checksums:
     needs: [release, desktop, windows-lite, android, web]
     if: always() && github.ref_type == 'tag' && needs.release.result == 'success'
@@ -317,3 +333,46 @@ jobs:
           rm -f SHA256SUMS.txt
           sha256sum * | tee SHA256SUMS.txt
           gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
+
+  # Make the release public once every download is attached and checksummed. If any build failed, this job
+  # is skipped and the release stays a draft: fix the build and re-run the failed jobs to publish it.
+  # 所有下载包都已附加并生成校验和后，公开发布该版本。如果有任何构建失败，此任务会被跳过，版本保持草稿状态：
+  # 修复构建并重新运行失败的任务即可发布。
+  publish:
+    needs: [release, desktop, windows-lite, android, web, checksums]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every download link in the notes has a file / 检查说明中的每个下载链接都有对应文件
+        run: |
+          gh release view "$GITHUB_REF_NAME" --json body,assets > rel.json
+          jq -r '.assets[].name' rel.json | sort -u > have.txt
+          jq -r '.body' rel.json | grep -oE "releases/download/$GITHUB_REF_NAME/[^) \"]+" | sed 's#.*/##' | sort -u > want.txt || true
+          echo "Assets: $(wc -l < have.txt) · linked in notes: $(wc -l < want.txt)"
+          missing="$(comm -23 want.txt have.txt)"
+          if [ -n "$missing" ]; then
+            echo "::error::Release notes link to files that were not uploaded:"; echo "$missing"; exit 1
+          fi
+      - name: Publish / 发布
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest
+          fi
+          gh release view "$GITHUB_REF_NAME" --json url -q .url >> "$GITHUB_STEP_SUMMARY"
+      - name: Check downloads work without signing in / 检查无需登录即可下载
+        if: ${{ !github.event.repository.private }}
+        run: |
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          for f in SHA256SUMS.txt cloudvault-steamos-install.sh; do
+            for i in 1 2 3 4 5 6; do
+              if curl -fsSIL -o /dev/null "$base/$f"; then echo "OK  $base/$f"; continue 2; fi
+              sleep 10
+            done
+            echo "::error::Not downloadable: $base/$f"; exit 1
+          done
+          if [[ "$GITHUB_REF_NAME" != *-* ]]; then
+            curl -fsSIL -o /dev/null "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/cloudvault-steamos-install.sh" \
+              && echo "OK  releases/latest/download/cloudvault-steamos-install.sh"
+          fi
