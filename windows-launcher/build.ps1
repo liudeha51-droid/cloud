@@ -1,4 +1,5 @@
-# Builds windows-launcher\CloudVault.exe using only tools built into Windows (.NET Framework csc).
+﻿# Builds windows-launcher\CloudVault.exe using only tools built into Windows (.NET Framework csc).
+# 只用 Windows 自带的工具（.NET Framework 的 csc 编译器）构建 windows-launcher\CloudVault.exe。
 #   powershell -ExecutionPolicy Bypass -File windows-launcher\build.ps1 [-Out <path to exe>]
 param([string]$Out = (Join-Path $PSScriptRoot 'CloudVault.exe'))
 $ErrorActionPreference = 'Stop'
@@ -7,6 +8,7 @@ $app = Join-Path $root 'app'
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 # --- icon: gradient rounded square with a padlock (matches app/icon.svg) ---
+# --- 图标：带挂锁的渐变圆角方块（与 app/icon.svg 一致） ---
 Add-Type -AssemblyName System.Drawing
 $ico = Join-Path $env:TEMP 'cloudvault-icon.ico'
 $bmp = New-Object System.Drawing.Bitmap 256, 256
@@ -26,7 +28,7 @@ $g.DrawLine($pen, 98, 102, 98, 122); $g.DrawLine($pen, 158, 102, 158, 122)
 $g.FillRectangle($white, 84, 118, 88, 70)
 $g.FillEllipse((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(95,61,196))), 118, 138, 20, 20)
 $g.Dispose()
-# PNG-compressed .ico (supported since Windows Vista)
+# PNG-compressed .ico (supported since Windows Vista) / PNG 压缩的 .ico（Windows Vista 起支持）
 $ms = New-Object System.IO.MemoryStream
 $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
 $png = $ms.ToArray()
@@ -38,12 +40,14 @@ $w.Write([uint16]1); $w.Write([uint16]32); $w.Write([uint32]$png.Length); $w.Wri
 $w.Write($png); $w.Close()
 
 # --- embed every file under app/ as resource "app/<relative/path>" ---
+# --- 把 app/ 下的每个文件以 "app/<相对路径>" 的名称嵌入为资源 ---
 $resources = Get-ChildItem $app -Recurse -File | ForEach-Object {
   $rel = $_.FullName.Substring($app.Length).Replace('\', '/')
   "/resource:`"$($_.FullName)`",app$rel"
 }
 
-& $csc /nologo /target:winexe /optimize+ /out:"$Out" /win32icon:"$ico" `
+# /codepage:65001 = read the source as UTF-8 (it contains Chinese comments) / 以 UTF-8 读取源码（其中有中文注释）
+& $csc /nologo /codepage:65001 /target:winexe /optimize+ /out:"$Out" /win32icon:"$ico" `
   /reference:System.Windows.Forms.dll @resources (Join-Path $PSScriptRoot 'CloudVaultLauncher.cs')
 if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE)" }
 Write-Host "Built $Out"

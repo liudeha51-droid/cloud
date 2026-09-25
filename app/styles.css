@@ -1,3 +1,5 @@
+/* Colour tokens: light by default, dark via prefers-color-scheme. */
+/* 颜色变量：默认浅色，系统为深色模式时自动切换为深色。 */
 :root {
   --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef0f4; --border: #dfe2e8;
   --text: #15181e; --muted: #667085; --accent: #3b5bdb; --accent-text: #ffffff;
@@ -55,15 +57,16 @@ legend { padding: 0 6px; font-weight: 600; }
 .grow { flex: 1; min-width: 0; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
 
-/* ---------- lock ---------- */
+/* ---------- lock screen / 锁定界面 ---------- */
 .lock { min-height: 100%; display: grid; place-items: center; padding: 16px; }
 .lock-card { width: min(420px, 100%); display: grid; gap: 14px; }
 .brand { display: flex; gap: 12px; align-items: center; }
 .brand p { margin: 0; }
+.lang-select { width: auto; min-height: 36px; padding: 4px 8px; font-size: 13px; align-self: flex-start; }
 details summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; gap: 6px; }
 details[open] { display: grid; gap: 8px; }
 
-/* ---------- app ---------- */
+/* ---------- main app / 主界面 ---------- */
 .app { height: 100%; display: flex; flex-direction: column; }
 .topbar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .logo { flex: none; }
@@ -103,7 +106,7 @@ details[open] { display: grid; gap: 8px; }
 .meter { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
 .meter span { display: block; height: 100%; width: 0; transition: width .2s, background .2s; }
 
-/* ---------- dialogs ---------- */
+/* ---------- dialogs / 对话框 ---------- */
 dialog { border: 1px solid var(--border); border-radius: 16px; padding: 0; background: var(--surface); color: var(--text); width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
 dialog::backdrop { background: rgb(0 0 0 / .45); }
 .dlg { padding: 20px; display: grid; gap: 12px; }
@@ -120,13 +123,13 @@ pre.preview { max-height: 50vh; overflow: auto; background: var(--surface-2); pa
 
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; z-index: 10; max-width: calc(100vw - 32px); }
 
-/* ---------- phones & narrow windows ---------- */
+/* ---------- phones & narrow windows / 手机与窄窗口 ---------- */
 @media (max-width: 760px) {
   .topbar { padding: 8px 12px; }
   .search { order: 5; flex-basis: 100%; }
   .actions { margin-left: auto; }
   .actions button { padding: 0 10px; }
-  .lbl { display: none; } /* icon-only buttons on phones */
+  .lbl { display: none; } /* icon-only buttons on phones / 手机上按钮只显示图标 */
   .split { grid-template-columns: 1fr; }
   .list { border-right: 0; }
   .detail { position: fixed; inset: 0; background: var(--bg); z-index: 5; padding: calc(16px + env(safe-area-inset-top)) 16px 16px; }

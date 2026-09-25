@@ -1,12 +1,15 @@
 node_modules/
 package-lock.json
 # server data: encrypted vaults, user hashes and the token-signing secret
+# 服务器数据：加密的密码库、用户哈希和令牌签名密钥
 server/data/
 # Tauri build output & generated platform projects/icons (recreated in CI)
+# Tauri 构建产物以及自动生成的平台工程/图标（CI 中会重新生成）
 src-tauri/target/
 src-tauri/gen/
 src-tauri/icons/
 # never commit exports / signing material
+# 绝不提交导出文件或签名材料
 *.csv
 cloudvault-backup-*.json
 *.jks
@@ -16,5 +19,7 @@ cloudvault-backup-*.json
 .env
 .DS_Store
 Thumbs.db
-# locally built launcher
+# locally built launcher / 本地构建的启动器
 windows-launcher/*.exe
+# local editor/agent settings / 本地编辑器与助手设置
+.claude/

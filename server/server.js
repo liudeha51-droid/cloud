@@ -5,12 +5,16 @@
 // password itself) and an already-encrypted vault blob. The server stores scrypt(authKey)
 // and the opaque blob; it cannot decrypt anything.
 //
+// CloudVault 同步服务器 —— 零依赖（Node >= 20）。
+// 零知识：客户端发送由主密码派生出的 *authKey*（绝不发送密码本身）和已经加密好的密码库数据。
+// 服务器只保存 scrypt(authKey) 和这份不透明的密文，无法解密任何内容。
+//
 //   POST /api/register {username, authKey}         → 201 {ok}
 //   POST /api/login    {username, authKey}         → 200 {token}
 //   GET  /api/vault                     (Bearer)   → 200 {version, blob}
-//   PUT  /api/vault    {baseVersion, blob} (Bearer)→ 200 {version} | 409 on conflict
+//   PUT  /api/vault    {baseVersion, blob} (Bearer)→ 200 {version} | 409 on conflict / 冲突时返回 409
 //   GET  /api/health                               → 200 {ok}
-//   GET  /*  → serves ../app (the PWA)
+//   GET  /*  → serves ../app (the PWA) / 提供 ../app 网页应用（PWA）
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs');
@@ -18,7 +22,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const MAX_BODY = 10 * 1024 * 1024; // 10 MB encrypted vault is thousands of entries
+const MAX_BODY = 10 * 1024 * 1024; // 10 MB encrypted vault is thousands of entries / 10 MB 的加密密码库足够容纳数千个条目
 const TOKEN_TTL = 12 * 3600 * 1000;
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -33,6 +37,7 @@ function createServer(opts = {}) {
   fs.mkdirSync(path.join(dataDir, 'vaults'), { recursive: true });
 
   // Server secret for signing session tokens (persisted so restarts don't log everyone out).
+  // 用于签名会话令牌的服务器密钥（持久保存，重启后用户不会被全部登出）。
   const secretFile = path.join(dataDir, 'secret.key');
   if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
   const secret = Buffer.from(process.env.CLOUDVAULT_SECRET || fs.readFileSync(secretFile, 'utf8').trim(), 'utf8');
@@ -41,6 +46,7 @@ function createServer(opts = {}) {
   let users = fs.existsSync(usersFile) ? JSON.parse(fs.readFileSync(usersFile, 'utf8')) : {};
 
   // Serialise all writes so concurrent requests can't interleave.
+  // 所有写操作串行执行，避免并发请求互相穿插。
   let chain = Promise.resolve();
   const serial = (fn) => (chain = chain.then(fn, fn));
 
@@ -70,6 +76,7 @@ function createServer(opts = {}) {
   }
 
   // Brute-force protection: max 10 failed logins per (ip, username) per 15 min.
+  // 防暴力破解：每个（IP，用户名）组合 15 分钟内最多失败 10 次。
   const failures = new Map();
   function tooMany(key) {
     const f = failures.get(key);
@@ -131,6 +138,7 @@ function createServer(opts = {}) {
       if (tooMany(key)) return send(res, 429, { error: 'Too many attempts, try again in 15 minutes' });
       const u = users[username];
       // Hash even for unknown users so response timing doesn't reveal which usernames exist.
+      // 即使用户不存在也照样计算哈希，避免通过响应时间判断用户名是否存在。
       const salt = u ? Buffer.from(u.salt, 'hex') : crypto.randomBytes(16);
       const got = hashAuth(authKey, salt);
       const ok = u && crypto.timingSafeEqual(got, Buffer.from(u.hash, 'hex'));
@@ -171,7 +179,7 @@ function createServer(opts = {}) {
     let rel = decodeURIComponent(url.pathname);
     if (rel.endsWith('/')) rel += 'index.html';
     const file = path.resolve(staticDir, '.' + path.posix.normalize(rel));
-    if (!file.startsWith(staticDir + path.sep)) return send(res, 403, { error: 'Forbidden' }); // path traversal guard
+    if (!file.startsWith(staticDir + path.sep)) return send(res, 403, { error: 'Forbidden' }); // path traversal guard / 防止路径穿越
     try {
       const data = await fsp.readFile(file);
       res.writeHead(200, {
@@ -190,6 +198,8 @@ function createServer(opts = {}) {
   return http.createServer(async (req, res) => {
     // Bearer-token auth (no cookies), so a wildcard CORS origin is safe and lets the
     // desktop/mobile apps (tauri://, http://tauri.localhost) talk to this server.
+    // 使用 Bearer 令牌认证（不用 Cookie），因此允许任意来源的 CORS 是安全的，
+    // 这样桌面/手机应用（tauri://、http://tauri.localhost）才能访问本服务器。
     res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');

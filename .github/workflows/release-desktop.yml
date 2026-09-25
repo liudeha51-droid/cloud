@@ -1,6 +1,7 @@
 name: Release desktop (Windows, Linux/SteamOS, macOS)
 
 # Push a tag like v0.1.0 to build installers and attach them to a draft GitHub Release.
+# 推送 v0.1.0 这样的标签，即可构建安装包并附加到 GitHub 草稿发布（Release）中。
 on:
   push:
     tags: ['v*']
@@ -15,11 +16,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest   # .msi + .exe (NSIS)
+          - platform: windows-latest   # .msi + .exe (NSIS) / Windows 安装包
             args: ''
-          - platform: ubuntu-22.04     # .AppImage (SteamOS/Steam Deck), .deb, .rpm
+          - platform: ubuntu-22.04     # .AppImage (SteamOS/Steam Deck), .deb, .rpm / Linux 与 Steam Deck
             args: ''
-          - platform: macos-latest     # universal .dmg
+          - platform: macos-latest     # universal .dmg / macOS 通用安装包
             args: '--target universal-apple-darwin'
     runs-on: ${{ matrix.platform }}
     steps:

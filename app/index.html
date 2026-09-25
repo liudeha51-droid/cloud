@@ -15,135 +15,143 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- ============ LOCK SCREEN ============ -->
+  <!-- Text is filled in by js/i18n.js from data-i18n* attributes. -->
+  <!-- 界面文字由 js/i18n.js 根据 data-i18n* 属性填充。 -->
+
+  <!-- ============ LOCK SCREEN / 锁定界面 ============ -->
   <main id="lock" class="lock">
     <form id="lockForm" class="card lock-card" autocomplete="off">
-      <div class="brand"><img src="icon.svg" alt="" width="44" height="44"><div><h1>CloudVault</h1><p class="muted">Zero-knowledge password manager</p></div></div>
-      <label>Username<input id="lUser" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
-      <label>Master password<input id="lPass" type="password" autocomplete="current-password" required></label>
+      <div class="brand">
+        <img src="icon.svg" alt="" width="44" height="44">
+        <div class="grow"><h1>CloudVault</h1><p class="muted" data-i18n="tagline"></p></div>
+        <select id="langLock" class="lang-select" data-i18n-aria="language"></select>
+      </div>
+      <label><span data-i18n="username"></span><input id="lUser" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+      <label><span data-i18n="masterPassword"></span><input id="lPass" type="password" autocomplete="current-password" required></label>
       <details id="serverBox">
-        <summary>Cloud sync server <span class="muted">(optional)</span></summary>
-        <label>Server URL<input id="lServer" type="url" placeholder="https://vault.example.com" autocapitalize="off" spellcheck="false"></label>
-        <p class="muted small">Leave empty for a device-only vault. Your server only ever receives encrypted data.</p>
+        <summary><span data-i18n="syncServer"></span> <span class="muted" data-i18n="optional"></span></summary>
+        <label><span data-i18n="serverUrl"></span><input id="lServer" type="url" placeholder="https://vault.example.com" autocapitalize="off" spellcheck="false"></label>
+        <p class="muted small" data-i18n="serverHint"></p>
       </details>
       <p id="lErr" class="error" role="alert" hidden></p>
       <div class="row">
-        <button id="btnUnlock" class="primary grow" type="submit">Unlock</button>
-        <button id="btnCreate" type="button" class="grow">Create vault</button>
+        <button id="btnUnlock" class="primary grow" type="submit" data-i18n="unlock"></button>
+        <button id="btnCreate" type="button" class="grow" data-i18n="createVault"></button>
       </div>
-      <p class="muted small center">Your master password cannot be recovered. Nobody — not even the server — can read your vault.</p>
+      <p class="muted small center" data-i18n="lockFoot"></p>
     </form>
   </main>
 
-  <!-- ============ MAIN APP ============ -->
+  <!-- ============ MAIN APP / 主界面 ============ -->
   <div id="app" class="app" hidden>
     <header class="topbar">
       <img class="logo" src="icon.svg" alt="CloudVault" width="32" height="32">
       <div class="search">
-        <input id="q" type="search" placeholder="Search (typos OK)…   Ctrl+K" autocomplete="off" spellcheck="false" aria-label="Search vault">
-        <button id="btnAsk" class="ai-btn" title="Ask your AI in plain words, e.g. &quot;where do I pay my phone bill&quot; (Shift+Enter)">✨<span class="lbl"> Ask AI</span></button>
+        <input id="q" type="search" autocomplete="off" spellcheck="false" data-i18n-ph="searchPh" data-i18n-aria="searchAria">
+        <button id="btnAsk" class="ai-btn" data-i18n-title="askAiTitle">✨<span class="lbl" data-i18n="askAi"></span></button>
       </div>
-      <span id="syncPill" class="pill" title="Sync status">local</span>
+      <span id="syncPill" class="pill" data-i18n-title="syncStatus"></span>
       <nav class="actions">
-        <button id="btnNew" class="primary">＋<span class="lbl"> New</span></button>
-        <button id="btnAudit" title="One-click AI security audit">🛡<span class="lbl"> Audit</span></button>
-        <button id="btnOrganize" title="One-click AI organize: folders &amp; tags">🏷<span class="lbl"> Organize</span></button>
-        <button id="btnGen" title="Password generator">🎲</button>
-        <button id="btnSettings" title="Settings">⚙</button>
-        <button id="btnLock" title="Lock (Ctrl+L)">🔒</button>
+        <button id="btnNew" class="primary">＋<span class="lbl" data-i18n="new"></span></button>
+        <button id="btnAudit" data-i18n-title="auditTitle">🛡<span class="lbl" data-i18n="audit"></span></button>
+        <button id="btnOrganize" data-i18n-title="organizeTitle">🏷<span class="lbl" data-i18n="organize"></span></button>
+        <button id="btnGen" data-i18n-title="generatorTitle">🎲</button>
+        <button id="btnSettings" data-i18n-title="settings">⚙</button>
+        <button id="btnLock" data-i18n-title="lockTitle">🔒</button>
       </nav>
     </header>
-    <div id="folders" class="chips" role="toolbar" aria-label="Folders"></div>
+    <div id="folders" class="chips" role="toolbar" data-i18n-aria="folders"></div>
     <div id="aiBanner" class="ai-banner" hidden></div>
     <div class="split">
-      <section id="list" class="list" aria-label="Vault items"></section>
+      <section id="list" class="list" data-i18n-aria="vaultItems"></section>
       <section id="detail" class="detail" aria-live="polite"></section>
     </div>
   </div>
 
-  <!-- ============ DIALOGS ============ -->
+  <!-- ============ DIALOGS / 对话框 ============ -->
   <dialog id="dlgEdit">
     <form id="editForm" method="dialog" class="dlg">
-      <h2 id="editTitle">New item</h2>
-      <label>Title<input name="title" required></label>
-      <label>Website<input name="url" placeholder="example.com" autocapitalize="off" spellcheck="false"></label>
-      <label>Username / email<input name="username" autocapitalize="off" spellcheck="false"></label>
-      <label>Password
+      <h2 id="editTitle"></h2>
+      <label><span data-i18n="title"></span><input name="title" required></label>
+      <label><span data-i18n="field.website"></span><input name="url" placeholder="example.com" autocapitalize="off" spellcheck="false"></label>
+      <label><span data-i18n="usernameEmail"></span><input name="username" autocapitalize="off" spellcheck="false"></label>
+      <label><span data-i18n="field.password"></span>
         <div class="row"><input name="password" type="password" class="grow mono" autocomplete="new-password">
-          <button type="button" data-act="toggle">👁</button><button type="button" data-act="gen">🎲</button></div>
+          <button type="button" data-act="toggle" data-i18n-title="showHide">👁</button><button type="button" data-act="gen" data-i18n-title="generatorTitle">🎲</button></div>
         <div class="meter"><span id="editMeter"></span></div><small id="editMeterLabel" class="muted"></small>
       </label>
       <div class="row">
-        <label class="grow">Folder<input name="folder" list="folderList"></label>
-        <label class="grow">Tags<input name="tags" placeholder="comma, separated"></label>
+        <label class="grow"><span data-i18n="folder"></span><input name="folder" list="folderList"></label>
+        <label class="grow"><span data-i18n="tags"></span><input name="tags" data-i18n-ph="tagsPh"></label>
       </div>
       <datalist id="folderList"></datalist>
-      <label>Notes<textarea name="notes" rows="3"></textarea></label>
+      <label><span data-i18n="field.notes"></span><textarea name="notes" rows="3"></textarea></label>
       <p id="editErr" class="error" hidden></p>
       <div class="row">
-        <button type="button" data-act="suggest" class="ai-btn">✨ Suggest</button>
+        <button type="button" data-act="suggest" class="ai-btn" data-i18n="suggest"></button>
         <span class="grow"></span>
-        <button type="button" data-act="cancel">Cancel</button>
-        <button type="submit" class="primary">Save</button>
+        <button type="button" data-act="cancel" data-i18n="cancel"></button>
+        <button type="submit" class="primary" data-i18n="save"></button>
       </div>
     </form>
   </dialog>
 
   <dialog id="dlgGen">
     <div class="dlg">
-      <h2>Password generator</h2>
+      <h2 data-i18n="genTitle"></h2>
       <output id="genOut" class="gen-out mono"></output>
       <div class="meter"><span id="genMeter"></span></div>
-      <label>Length <b id="genLenVal">20</b><input id="genLen" type="range" min="8" max="64" value="20"></label>
+      <label><span><span data-i18n="length"></span> <b id="genLenVal">20</b></span><input id="genLen" type="range" min="8" max="64" value="20"></label>
       <div class="checks">
         <label><input type="checkbox" id="genLower" checked> a-z</label>
         <label><input type="checkbox" id="genUpper" checked> A-Z</label>
         <label><input type="checkbox" id="genDigits" checked> 0-9</label>
         <label><input type="checkbox" id="genSymbols" checked> !@#</label>
       </div>
-      <p class="muted small">Generated on-device with a cryptographically secure RNG — never by AI.</p>
-      <div class="row"><button id="genAgain">↻ Regenerate</button><span class="grow"></span>
-        <button id="genClose">Close</button><button id="genCopy" class="primary">Copy</button><button id="genUse" class="primary" hidden>Use</button></div>
+      <p class="muted small" data-i18n="genNote"></p>
+      <div class="row"><button id="genAgain" data-i18n="regenerate"></button><span class="grow"></span>
+        <button id="genClose" data-i18n="close"></button><button id="genCopy" class="primary" data-i18n="copy"></button><button id="genUse" class="primary" data-i18n="use" hidden></button></div>
     </div>
   </dialog>
 
   <dialog id="dlgSettings">
     <form id="setForm" method="dialog" class="dlg">
-      <h2>Settings</h2>
+      <h2 data-i18n="settingsTitle"></h2>
+      <label><span data-i18n="language"></span><select id="langSettings"></select></label>
       <fieldset>
-        <legend>✨ Personal AI</legend>
-        <label>Provider
+        <legend data-i18n="personalAi"></legend>
+        <label><span data-i18n="provider"></span>
           <select name="provider">
-            <option value="anthropic">Claude (Anthropic API)</option>
-            <option value="ollama">Local model (Ollama — fully offline)</option>
+            <option value="anthropic" data-i18n="provAnthropic"></option>
+            <option value="ollama" data-i18n="provOllama"></option>
           </select>
         </label>
         <div data-for="anthropic">
-          <label>Anthropic API key<input name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
-          <label>Model<input name="model" placeholder="claude-opus-5"></label>
+          <label><span data-i18n="apiKey"></span><input name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
+          <label><span data-i18n="model"></span><input name="model" placeholder="claude-opus-5"></label>
         </div>
         <div data-for="ollama">
-          <label>Ollama URL<input name="ollamaUrl" placeholder="http://localhost:11434"></label>
-          <label>Ollama model<input name="ollamaModel" placeholder="llama3.1"></label>
+          <label><span data-i18n="ollamaUrl"></span><input name="ollamaUrl" placeholder="http://localhost:11434"></label>
+          <label><span data-i18n="ollamaModel"></span><input name="ollamaModel" placeholder="llama3.1"></label>
         </div>
-        <p class="muted small">Stored inside your encrypted vault. AI only ever receives titles, domains, tags and password <em>statistics</em> — never passwords, usernames or notes. <a href="#" id="previewAi">Preview exactly what is sent</a>.</p>
+        <p class="muted small"><span data-i18n="aiPrivacy"></span> <a href="#" id="previewAi" data-i18n="previewAi"></a></p>
       </fieldset>
       <fieldset>
-        <legend>Security</legend>
-        <label>Auto-lock after (minutes)<input name="autoLock" type="number" min="1" max="240"></label>
-        <label>Clear clipboard after (seconds)<input name="clipClear" type="number" min="5" max="600"></label>
+        <legend data-i18n="security"></legend>
+        <label><span data-i18n="autoLock"></span><input name="autoLock" type="number" min="1" max="240"></label>
+        <label><span data-i18n="clipClear"></span><input name="clipClear" type="number" min="5" max="600"></label>
       </fieldset>
       <fieldset>
-        <legend>Data</legend>
+        <legend data-i18n="data"></legend>
         <div class="row wrap">
-          <button type="button" data-act="syncNow">⟳ Sync now</button>
-          <button type="button" data-act="export">⬇ Encrypted backup</button>
-          <label class="button">⬆ Import CSV<input type="file" id="csvFile" accept=".csv,text/csv" hidden></label>
-          <button type="button" data-act="forget" class="danger">Forget this device</button>
+          <button type="button" data-act="syncNow" data-i18n="syncNow"></button>
+          <button type="button" data-act="export" data-i18n="backup"></button>
+          <label class="button"><span data-i18n="importCsv"></span><input type="file" id="csvFile" accept=".csv,text/csv" hidden></label>
+          <button type="button" data-act="forget" class="danger" data-i18n="forget"></button>
         </div>
-        <p class="muted small">CSV import understands Chrome, Edge, Firefox, Bitwarden and 1Password exports.</p>
+        <p class="muted small" data-i18n="csvHint"></p>
       </fieldset>
-      <div class="row"><span class="grow"></span><button type="button" data-act="cancel">Cancel</button><button type="submit" class="primary">Save</button></div>
+      <div class="row"><span class="grow"></span><button type="button" data-act="cancel" data-i18n="cancel"></button><button type="submit" class="primary" data-i18n="save"></button></div>
     </form>
   </dialog>
 
@@ -151,12 +159,13 @@
     <div class="dlg">
       <h2 id="aiTitle">AI</h2>
       <div id="aiBody"></div>
-      <div class="row"><span class="grow"></span><button id="aiClose">Close</button><button id="aiApply" class="primary" hidden>Apply all</button></div>
+      <div class="row"><span class="grow"></span><button id="aiClose" data-i18n="close"></button><button id="aiApply" class="primary" data-i18n="applyAll" hidden></button></div>
     </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/crypto.js"></script>
   <script src="js/fuzzy.js"></script>
   <script src="js/store.js"></script>

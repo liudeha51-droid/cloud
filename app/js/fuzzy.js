@@ -4,9 +4,15 @@
 // scored against every word of every field, best match wins:
 //   exact 1.0 > prefix 0.9 > substring 0.75 > typo (Damerau-Levenshtein) 0.7/0.5 > subsequence ≤0.6
 // e.g. "gmial" → Gmail, "amzn" → Amazon, "bank chase" → "Chase Bank", "nflx" → Netflix.
+//
+// CloudVault 模糊搜索 —— 容错（允许错别字）、支持多个关键词、按字段加权。
+// 每个查询词都必须在条目中匹配到某处（“与”逻辑）。每个词会和每个字段里的每个词比较，取最高分：
+//   完全相同 1.0 > 前缀 0.9 > 包含 0.75 > 错别字（Damerau-Levenshtein 距离）0.7/0.5 > 子序列 ≤0.6
+// 例如 "gmial" → Gmail、"amzn" → Amazon、"bank chase" → "Chase Bank"、"银行" → "招商银行"。
 (function (root) {
   'use strict';
 
+  // Field weights: a title match counts most, notes least. / 字段权重：标题匹配最重要，备注最不重要。
   const FIELDS = [
     { key: 'title', weight: 3 },
     { key: 'url', weight: 2 },
@@ -16,16 +22,20 @@
     { key: 'notes', weight: 0.6 },
   ];
 
+  // Lower-case and strip accents so "café" matches "cafe". / 转小写并去掉重音符号，使 "café" 能匹配 "cafe"。
   function normalize(s) {
     return String(s == null ? '' : s)
       .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents: "café" → "cafe"
       .toLowerCase();
   }
+  // Split into words on anything that is not a letter or digit (CJK text stays one word and is
+  // matched by substring). / 按非字母、非数字的字符切分单词（中日韩文字连成一个词，靠“包含”匹配）。
   function words(s) {
     return normalize(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   }
 
   // Optimal string alignment distance with early exit once it exceeds `max`.
+  // 最优字符串对齐距离（允许相邻字符交换），一旦超过 `max` 就提前退出。
   function editDistance(a, b, max) {
     if (Math.abs(a.length - b.length) > max) return max + 1;
     const prev2 = new Array(b.length + 1);
@@ -50,6 +60,7 @@
   }
 
   // Characters of q appear in w in order ("amzn" in "amazon"). Returns 0..1 density or 0.
+  // q 的字符按顺序出现在 w 中（如 "amzn" 之于 "amazon"）。返回 0..1 的密度，不匹配返回 0。
   function subsequence(q, w) {
     if (q.length < 2 || q[0] !== w[0]) return 0;
     let i = 0;
@@ -57,6 +68,8 @@
     return i === q.length ? q.length / w.length : 0;
   }
 
+  // Typos tolerated: none for short words, which would otherwise match almost everything.
+  // 允许的错别字数：短词不允许，否则几乎什么都能匹配上。
   function maxTypos(len) {
     return len <= 3 ? 0 : len <= 6 ? 1 : 2;
   }
@@ -69,6 +82,7 @@
     if (max) {
       let d = editDistance(q, w, max);
       // Also compare against the start of a longer word, so a typo while still typing works: "gogl" → "google"
+      // 同时与较长单词的开头比较，这样边输入边打错也能匹配："gogl" → "google"
       if (d > max && w.length > q.length) d = editDistance(q, w.slice(0, q.length), max);
       if (d <= max) return d === 1 ? 0.7 : 0.5;
     }
@@ -89,20 +103,21 @@
       let best = 0;
       for (const f of prepared) {
         let s = 0;
-        if (q.length >= 3 && f.text.includes(q)) s = 0.8; // spans punctuation, e.g. "gmail.com"
+        if (q.length >= 3 && f.text.includes(q)) s = 0.8; // spans punctuation, e.g. "gmail.com" / 可跨标点匹配，如 "gmail.com"
         for (const w of f.words) {
           if (s === 1) break;
           s = Math.max(s, scoreWord(q, w));
         }
         best = Math.max(best, s * f.weight);
       }
-      if (best === 0) return 0; // every query word must match
+      if (best === 0) return 0; // every query word must match / 每个查询词都必须匹配
       total += best;
     }
     return total / (queryWords.length * FIELDS[0].weight);
   }
 
   // entries: array of objects; returns [{ entry, score }] best first. Empty query → everything.
+  // entries：对象数组；返回按得分从高到低排序的 [{ entry, score }]。查询为空时返回全部。
   function search(entries, query, opts) {
     const minScore = (opts && opts.minScore) || 0.1;
     const qWords = words(query);

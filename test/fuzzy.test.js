@@ -1,4 +1,6 @@
 'use strict';
+// Fuzzy search: typos, abbreviations, multi-word, accents and non-Latin scripts.
+// 模糊搜索测试：错别字、缩写、多关键词、重音符号以及非拉丁文字。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 require('../app/js/fuzzy.js');
@@ -52,6 +54,21 @@ test('empty query returns everything, nonsense returns nothing', () => {
 
 test('short words are not typo-matched (avoids noise)', () => {
   assert.deepEqual(ids('dvx'), []);
+});
+
+test('Chinese and other non-Latin titles / 中文等非拉丁文字标题', () => {
+  const cjk = [
+    { id: 'a', title: '招商银行', url: 'cmbchina.com', tags: ['理财'] },
+    { id: 'b', title: '微信', url: 'weixin.qq.com', folder: '社交' },
+    { id: 'c', title: 'Яндекс Почта', url: 'mail.yandex.ru' },
+  ];
+  const first = (q) => (search(cjk, q)[0] || {}).entry?.id;
+  assert.equal(first('银行'), 'a');
+  assert.equal(first('招商'), 'a');
+  assert.equal(first('理财'), 'a');
+  assert.equal(first('社交'), 'b');
+  assert.equal(first('почта'), 'c');
+  assert.equal(first('яндкс'), 'c'); // typo in Cyrillic / 西里尔字母中的错字
 });
 
 test('editDistance', () => {

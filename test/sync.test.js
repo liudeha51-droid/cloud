@@ -1,6 +1,7 @@
 'use strict';
 // End-to-end: real sync server + two independent "devices" (separate localStorage) editing
 // the same vault concurrently.
+// 端到端测试：真实的同步服务器 + 两台相互独立的“设备”（各自的 localStorage）同时编辑同一个密码库。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

@@ -8,6 +8,7 @@ services:
       - "8787:8787"
     environment:
       # Set to "false" after you have created your account(s).
+      # 创建好自己的账户后，改为 "false"（关闭注册）。
       ALLOW_REGISTRATION: "true"
     volumes:
       - cloudvault-data:/data

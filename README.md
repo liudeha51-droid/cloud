@@ -10,6 +10,11 @@ with **typo-tolerant fuzzy search** and **one-click personal AI** (Claude or a f
   AI only ever sees titles, domains, tags and password *statistics* — **never passwords, usernames or notes** (enforced by `redact()` in [`app/js/ai.js`](app/js/ai.js), covered by tests).
 - 📱 **One codebase everywhere** — plain HTML/JS app ([`app/`](app/)) packaged by [Tauri 2](https://tauri.app) for desktop & mobile, and installable as a PWA.
 - 🎲 Secure generator, strength meter, clipboard auto-clear, auto-lock, CSV import (Chrome/Edge/Firefox/Bitwarden/1Password), encrypted backup.
+- 🌐 **8 languages**: 简体中文, 繁體中文, English, 한국어, Español, Français, Deutsch, Русский. The app picks your system language automatically; switch it on the lock screen or in ⚙ Settings. AI answers come back in the same language.
+  Translations live in [`app/js/i18n.js`](app/js/i18n.js), and `test/i18n.test.js` fails if any language is missing a string.
+- 💬 Code comments are bilingual (English + 中文).
+
+> **中文简介：** CloudVault 是一个零知识的云端密码管理器，支持 Android、iOS、Windows、Linux 和 SteamOS。它支持模糊搜索（允许错别字），并提供一键个人 AI（Claude 或本地 Ollama）。AI 永远看不到你的密码。界面支持 8 种语言，可在锁定界面或 ⚙ 设置中切换。
 
 ## Architecture
 

@@ -1,10 +1,12 @@
 'use strict';
+// Crypto round-trips, wrong-password rejection, tamper detection, generator and AI redaction.
+// 加解密往返、错误密码拒绝、篡改检测、密码生成器以及 AI 数据脱敏的测试。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 require('../app/js/crypto.js');
 require('../app/js/ai.js');
 const C = globalThis.PV.crypto;
-const ITER = 1000; // fast for tests; the app uses 600k
+const ITER = 1000; // fast for tests; the app uses 600k / 测试用少量迭代以加快速度；应用实际使用 60 万次
 
 test('envelope round-trip', async () => {
   const keys = await C.deriveKeys('Alice', 'correct horse battery staple', ITER);
@@ -24,7 +26,7 @@ test('wrong password is rejected', async () => {
   const good = await C.deriveKeys('alice', 'right password', ITER);
   const bad = await C.deriveKeys('alice', 'wrong password', ITER);
   const { envelope } = await C.createEnvelope(good, { entries: [] });
-  await assert.rejects(C.openEnvelope(bad, envelope), /Wrong master password/);
+  await assert.rejects(C.openEnvelope(bad, envelope), (e) => e.code === 'WRONG_PW' && /Wrong master password/.test(e.message));
 });
 
 test('auth key differs from encryption material and per user', async () => {

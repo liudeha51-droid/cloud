@@ -2,6 +2,10 @@
 // The app's files are embedded in the .exe. It serves them on http://localhost:47821 and
 // opens a chromeless Microsoft Edge app window with its own private profile.
 // The full native build (Tauri) is produced by the GitHub "Release desktop" workflow.
+// CloudVault 轻量级 Windows 启动器（编译无需 Rust/Node —— 见 build.ps1）。
+// 应用文件全部嵌入在 .exe 中，通过 http://localhost:47821 提供，
+// 并打开一个无地址栏的 Microsoft Edge 应用窗口（使用独立的私有配置文件）。
+// 完整的原生版本（Tauri）由 GitHub 的 "Release desktop" 工作流构建。
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -17,6 +21,7 @@ using System.Windows.Forms;
 static class CloudVaultLauncher
 {
     // Fixed port: the vault's local encrypted copy is stored per-origin, so it must not change.
+    // 固定端口：密码库的本地加密副本按来源（origin）存储，所以端口不能变。
     const int Port = 47821;
     static readonly string Url = "http://localhost:" + Port + "/";
 
@@ -27,7 +32,7 @@ static class CloudVaultLauncher
         listener.Prefixes.Add(Url);
         bool serving = true;
         try { listener.Start(); }
-        catch (HttpListenerException) { serving = false; } // another CloudVault window is already serving
+        catch (HttpListenerException) { serving = false; } // another CloudVault window is already serving / 已有另一个 CloudVault 窗口在提供服务
 
         if (serving)
         {
@@ -47,7 +52,7 @@ static class CloudVaultLauncher
         }
         else
         {
-            Process.Start(Url); // fall back to the default browser
+            Process.Start(Url); // fall back to the default browser / 找不到 Edge 时改用默认浏览器
         }
 
         if (!serving) return;
@@ -91,6 +96,7 @@ static class CloudVaultLauncher
                 string path = ctx.Request.Url.AbsolutePath;
                 if (path.EndsWith("/")) path += "index.html";
                 // Resources are embedded as "app/<relative path>"; no file system access at all.
+                // 资源以 "app/<相对路径>" 的名称嵌入；完全不访问文件系统。
                 using (Stream s = asm.GetManifestResourceStream("app" + path))
                 {
                     if (s == null || ctx.Request.HttpMethod != "GET") { ctx.Response.StatusCode = 404; }

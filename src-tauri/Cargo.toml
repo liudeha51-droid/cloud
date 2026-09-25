@@ -14,9 +14,22 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 
+# Small, fast release builds. / 体积小、速度快的正式版构建。
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# Debug builds (used for the sideloadable Android APK) without debug symbols and lightly optimised:
+# keeps the APK tens of MB instead of hundreds.
+# 调试版构建（用于可侧载安装的 Android APK）：去掉调试符号并做轻度优化，
+# 让 APK 只有几十 MB，而不是几百 MB。
+[profile.dev]
+debug = false
+strip = true
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = "s"

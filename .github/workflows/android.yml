@@ -24,7 +24,9 @@ jobs:
           java-version: 17
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools'   # the default also installs the legacy "tools" package, which no longer exists
+          # the default also installs the legacy "tools" package, which no longer exists
+          # 默认还会安装已被移除的旧版 "tools" 包，所以这里只装 platform-tools
+          packages: 'platform-tools'
       - name: Install NDK
         run: |
           sdkmanager "ndk;${NDK_VERSION}"
@@ -40,6 +42,8 @@ jobs:
       - run: npx tauri android init --ci
       # If you add ANDROID_KEYSTORE_BASE64 / ANDROID_KEY_PASSWORD / ANDROID_KEY_ALIAS secrets,
       # a signed release APK is built; otherwise a debug-signed APK you can sideload.
+      # 如果配置了 ANDROID_KEYSTORE_BASE64 / ANDROID_KEY_PASSWORD / ANDROID_KEY_ALIAS 这些密钥，
+      # 就会构建签名的正式版 APK；否则构建可侧载安装的调试签名 APK。
       - name: Build APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

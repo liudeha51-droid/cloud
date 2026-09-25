@@ -1,13 +1,15 @@
 // CloudVault UI controller. All user data is rendered with textContent (never innerHTML).
+// CloudVault 界面控制器。所有用户数据都用 textContent 渲染（绝不使用 innerHTML）。
 (function () {
   'use strict';
-  const { crypto: C, fuzzy, ai, store: S } = window.PV;
+  const { crypto: C, fuzzy, ai, store: S, i18n } = window.PV;
+  const t = i18n.t;
   const store = new S.Store();
   const $ = (id) => document.getElementById(id);
 
   const state = { query: '', folder: '', selectedId: null, aiIds: null, aiNote: '', genTarget: null };
 
-  // ---------- tiny DOM helper ----------
+  // ---------- tiny DOM helper / 简易 DOM 构建工具 ----------
   function h(tag, attrs, ...kids) {
     const el = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs || {})) {
@@ -22,19 +24,31 @@
 
   let toastTimer;
   function toast(msg) {
-    const t = $('toast');
-    t.textContent = msg;
-    t.hidden = false;
+    const el = $('toast');
+    el.textContent = msg;
+    el.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  }
+
+  // Turn an error into a message in the current language (errors carry a `code` or HTTP `status`).
+  // 把错误转换为当前语言的提示（错误对象带有 `code` 或 HTTP `status`）。
+  function errText(e) {
+    if (e && e.code) return t('err.' + e.code, e.vars);
+    if (e && e.status === 0) return t('err.OFFLINE');
+    if (e && e.status === 401) return t('err.WRONG_LOGIN');
+    if (e && e.status === 403) return t('err.REG_DISABLED');
+    if (e && e.status === 409) return t('err.TAKEN');
+    if (e && e.status === 429) return t('err.TOO_MANY');
+    return (e && e.message) || String(e);
   }
 
   async function busy(btn, fn) {
-    const prev = btn.innerHTML;
+    const prev = btn.innerHTML; // our own static markup, safe to restore / 只是我们自己的静态标记，可安全恢复
     btn.disabled = true;
     btn.textContent = '…';
     try { return await fn(); }
-    catch (e) { toast(e.message || String(e)); throw e; }
+    catch (e) { toast(errText(e)); throw e; }
     finally { btn.disabled = false; btn.innerHTML = prev; }
   }
 
@@ -45,45 +59,63 @@
   }
   function avatar(e) {
     const el = h('span', { class: 'avatar', 'aria-hidden': 'true' }, (e.title || '?').trim().charAt(0).toUpperCase() || '?');
-    el.style.background = colorFor(e.title || '?'); // CSSOM, allowed by the strict CSP
+    el.style.background = colorFor(e.title || '?'); // CSSOM, allowed by the strict CSP / 通过 CSSOM 设置，严格的 CSP 允许
     return el;
   }
+  function strengthLabel(pw) { return t('strength' + C.strength(pw).score); }
   function setMeter(bar, label, pw) {
     const s = C.strength(pw);
     bar.style.width = pw ? (20 + s.score * 20) + '%' : '0';
     bar.style.background = ['var(--danger)', 'var(--danger)', 'var(--warn)', 'var(--ok)', 'var(--ok)'][s.score];
-    if (label) label.textContent = pw ? s.label + ' · ~' + s.bits + ' bits' : '';
+    if (label) label.textContent = pw ? strengthLabel(pw) + ' · ' + t('bits', { n: s.bits }) : '';
   }
-  function aiCfg() { return Object.assign({}, ai.DEFAULTS, store.settings.ai); }
+  // AI settings plus the UI language, so AI answers come back in the user's language.
+  // AI 设置加上界面语言，让 AI 用用户的语言回答。
+  function aiCfg() { return Object.assign({}, ai.DEFAULTS, store.settings.ai, { language: i18n.aiLanguage }); }
   function setting(k, dflt) { const v = store.settings[k]; return v == null ? dflt : v; }
 
-  // ---------- clipboard with auto-clear ----------
+  // ---------- language pickers / 语言选择器 ----------
+  function fillLangSelect(sel) {
+    sel.replaceChildren(...Object.entries(i18n.LANGS).map(([code, [name]]) => h('option', { value: code }, name)));
+    sel.value = i18n.lang;
+    sel.addEventListener('change', () => i18n.set(sel.value));
+  }
+  fillLangSelect($('langLock'));
+  fillLangSelect($('langSettings'));
+  i18n.onChange(() => {
+    $('langLock').value = $('langSettings').value = i18n.lang;
+    renderStatus();
+    if (store.isUnlocked) render();
+  });
+  i18n.apply();
+
+  // ---------- clipboard with auto-clear / 剪贴板（自动清除） ----------
   let clipTimer;
   async function copy(text, what) {
     try {
       await navigator.clipboard.writeText(text);
     } catch (e) {
-      toast('Clipboard blocked by this browser'); return;
+      toast(t('clipBlocked')); return;
     }
     const secs = setting('clipClear', 30);
-    toast((what || 'Copied') + ' — clears in ' + secs + 's');
+    toast(t('clipClears', { what: what || t('copiedGeneric'), n: secs }));
     clearTimeout(clipTimer);
     clipTimer = setTimeout(async () => {
       try {
         const cur = await navigator.clipboard.readText().catch(() => text);
         if (cur === text) await navigator.clipboard.writeText('');
-      } catch (e) { /* page not focused; best effort */ }
+      } catch (e) { /* page not focused; best effort / 页面未获得焦点，尽力而为 */ }
     }, secs * 1000);
   }
 
-  // ---------- auto-lock ----------
+  // ---------- auto-lock / 自动锁定 ----------
   let lastActive = Date.now();
   ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => { lastActive = Date.now(); }, { passive: true }));
   setInterval(() => {
     if (store.isUnlocked && Date.now() - lastActive > setting('autoLock', 10) * 60000) lock();
   }, 15000);
 
-  // ================= LOCK SCREEN =================
+  // ================= LOCK SCREEN / 锁定界面 =================
   const profile = S.Store.lastProfile();
   if (profile) {
     $('lUser').value = profile.username || '';
@@ -93,8 +125,9 @@
   } else {
     $('lUser').focus();
   }
-  // When served by the sync server itself (PWA), default the server URL to this origin.
-  if (!$('lServer').value && /^https?:$/.test(location.protocol) && !/tauri/.test(location.host)) {
+  // When served by the sync server itself (PWA), suggest this origin as the server URL.
+  // 如果页面由同步服务器本身提供（PWA），把当前地址作为服务器地址的提示。
+  if (!$('lServer').value && /^https?:$/.test(location.protocol) && !/tauri/.test(location.host) && location.port !== '47821') {
     $('lServer').placeholder = location.origin;
   }
 
@@ -102,20 +135,19 @@
     const err = $('lErr');
     err.hidden = true;
     const btn = create ? $('btnCreate') : $('btnUnlock');
-    if (create && !confirm('Create a new vault for "' + $('lUser').value.trim() + '"?\n\nWrite your master password down somewhere safe — it cannot be recovered.')) return;
+    if (create && !confirm(t('confirmCreate', { user: $('lUser').value.trim() }))) return;
     btn.disabled = true;
-    const label = btn.textContent;
-    btn.textContent = create ? 'Creating…' : 'Unlocking…';
+    btn.textContent = create ? t('creating') : t('unlocking');
     try {
       await store.unlock({ username: $('lUser').value, password: $('lPass').value, serverUrl: $('lServer').value.trim(), create });
       $('lPass').value = '';
       showApp();
     } catch (e) {
-      err.textContent = e.message || String(e);
+      err.textContent = errText(e);
       err.hidden = false;
     } finally {
       btn.disabled = false;
-      btn.textContent = label;
+      btn.textContent = create ? t('createVault') : t('unlock');
     }
   }
   $('lockForm').addEventListener('submit', (e) => { e.preventDefault(); doUnlock(false); });
@@ -140,15 +172,18 @@
     $('lPass').focus();
   }
 
-  // ================= MAIN VIEW =================
-  store.on(() => {
+  // ================= MAIN VIEW / 主界面 =================
+  function renderStatus() {
     const pill = $('syncPill');
-    const labels = { local: 'device only', synced: '✓ synced', syncing: 'syncing…', offline: 'offline', error: 'sync error' };
-    pill.textContent = labels[store.status] || store.status;
+    pill.textContent = t('status.' + store.status);
     pill.className = 'pill ' + store.status;
-    pill.title = store.statusDetail || '';
+    pill.title = store.statusDetail || t('syncStatus');
+  }
+  store.on(() => {
+    renderStatus();
     if (store.isUnlocked && !$('app').hidden) render();
   });
+  renderStatus();
 
   function visibleEntries() {
     let list = store.entries;
@@ -158,13 +193,13 @@
       return state.aiIds.map((id) => byId.get(id)).filter(Boolean);
     }
     if (state.query.trim()) return fuzzy.search(list, state.query).map((r) => r.entry);
-    return list.slice().sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
+    return list.slice().sort((a, b) => (a.title || '').localeCompare(b.title || '', i18n.locale, { sensitivity: 'base' }));
   }
 
   function render() {
-    // folder chips
+    // folder chips / 文件夹筛选按钮
     const folders = Array.from(new Set(store.entries.map((e) => e.folder).filter(Boolean))).sort();
-    const chips = [h('button', { 'aria-pressed': String(!state.folder), onclick: () => { state.folder = ''; render(); } }, 'All ' + store.entries.length)];
+    const chips = [h('button', { 'aria-pressed': String(!state.folder), onclick: () => { state.folder = ''; render(); } }, t('all', { n: store.entries.length }))];
     for (const f of folders) {
       chips.push(h('button', { 'aria-pressed': String(state.folder === f), onclick: () => { state.folder = state.folder === f ? '' : f; render(); } }, f));
     }
@@ -172,26 +207,25 @@
     $('folders').hidden = folders.length === 0;
     $('folderList').replaceChildren(...folders.map((f) => h('option', { value: f })));
 
-    // AI banner
+    // AI banner / AI 结果横幅
     const banner = $('aiBanner');
     banner.hidden = !state.aiIds;
     if (state.aiIds) {
-      banner.replaceChildren(h('span', null, '✨ ' + (state.aiNote || 'AI results')),
-        h('button', { onclick: clearAi }, 'Clear'));
+      banner.replaceChildren(h('span', null, '✨ ' + (state.aiNote || t('aiResults'))),
+        h('button', { onclick: clearAi }, t('clear')));
     }
 
-    // list
+    // item list / 条目列表
     const items = visibleEntries();
     const list = $('list');
     if (!items.length) {
-      list.replaceChildren(h('div', { class: 'empty' },
-        store.entries.length ? 'No matches. Try ✨ Ask AI for a plain-words search.' : 'Your vault is empty. Click ＋ to add your first login, or import a CSV in ⚙ Settings.'));
+      list.replaceChildren(h('div', { class: 'empty' }, store.entries.length ? t('noMatches') : t('emptyVault')));
     } else {
       list.replaceChildren(...items.map((e) => h('div', {
         class: 'item' + (e.id === state.selectedId ? ' active' : ''), tabindex: '0', role: 'button',
         onclick: () => select(e.id),
         onkeydown: (ev) => { if (ev.key === 'Enter') select(e.id); },
-      }, avatar(e), h('div', null, h('div', { class: 't' }, e.title || '(untitled)'), h('div', { class: 's' }, e.username || ai.domainOf(e.url) || '')))));
+      }, avatar(e), h('div', null, h('div', { class: 't' }, e.title || t('untitled')), h('div', { class: 's' }, e.username || ai.domainOf(e.url) || '')))));
     }
     renderDetail();
   }
@@ -203,10 +237,10 @@
     const v = h('div', { class: 'v' + (opts.mono ? ' mono' : '') }, opts.secret ? '••••••••••••' : value);
     let shown = false;
     return h('div', { class: 'field' },
-      h('div', { class: 'grow' }, h('div', { class: 'k' }, label), v),
-      opts.secret && h('button', { title: 'Show / hide', onclick: () => { shown = !shown; v.textContent = shown ? value : '••••••••••••'; } }, '👁'),
-      opts.open && h('button', { title: 'Open website', onclick: () => window.open(opts.open, '_blank', 'noopener,noreferrer') }, '↗'),
-      opts.copy !== false && h('button', { title: 'Copy', onclick: () => copy(value, label + ' copied') }, '⧉'));
+      h('div', { class: 'grow' }, h('div', { class: 'k' }, opts.caption || label), v),
+      opts.secret && h('button', { title: t('showHide'), onclick: () => { shown = !shown; v.textContent = shown ? value : '••••••••••••'; } }, '👁'),
+      opts.open && h('button', { title: t('openSite'), onclick: () => window.open(opts.open, '_blank', 'noopener,noreferrer') }, '↗'),
+      opts.copy !== false && h('button', { title: t('copy'), onclick: () => copy(value, t('copiedField', { what: label })) }, '⧉'));
   }
 
   function renderDetail() {
@@ -214,28 +248,28 @@
     const e = store.entries.find((x) => x.id === state.selectedId);
     if (!e) { d.replaceChildren(); return; }
     const href = e.url ? (/^[a-z]+:\/\//i.test(e.url) ? e.url : 'https://' + e.url) : null;
-    const s = C.strength(e.password);
     d.replaceChildren(
-      h('button', { class: 'back', onclick: () => { state.selectedId = null; render(); } }, '← Back'),
-      h('div', { class: 'd-head' }, avatar(e), h('div', { class: 'grow' }, h('h2', null, e.title || '(untitled)'),
+      h('button', { class: 'back', onclick: () => { state.selectedId = null; render(); } }, t('back')),
+      h('div', { class: 'd-head' }, avatar(e), h('div', { class: 'grow' }, h('h2', null, e.title || t('untitled')),
         h('div', { class: 'muted small' }, [e.folder, ai.domainOf(e.url)].filter(Boolean).join(' · ')))),
-      e.username && field('Username', e.username),
-      e.password && field('Password · ' + s.label, e.password, { secret: true, mono: true }),
-      e.url && field('Website', e.url, { open: /^https?:\/\//i.test(href) ? href : null }),
-      e.notes && field('Notes', e.notes),
-      (e.tags || []).length > 0 && h('div', { class: 'tags' }, e.tags.map((t) => h('span', { class: 'tag' }, '#' + t))),
-      h('p', { class: 'muted small' }, 'Updated ' + new Date(e.updatedAt).toLocaleString()),
+      e.username && field(t('field.username'), e.username),
+      e.password && field(t('field.password'), e.password,
+        { secret: true, mono: true, caption: t('field.password') + ' · ' + strengthLabel(e.password) }),
+      e.url && field(t('field.website'), e.url, { open: /^https?:\/\//i.test(href) ? href : null }),
+      e.notes && field(t('field.notes'), e.notes),
+      (e.tags || []).length > 0 && h('div', { class: 'tags' }, e.tags.map((tag) => h('span', { class: 'tag' }, '#' + tag))),
+      h('p', { class: 'muted small' }, t('updated', { date: new Date(e.updatedAt).toLocaleString(i18n.locale) })),
       h('div', { class: 'row' },
-        h('button', { class: 'primary', onclick: () => openEditor(e) }, '✎ Edit'),
+        h('button', { class: 'primary', onclick: () => openEditor(e) }, t('edit')),
         h('button', { class: 'danger', onclick: async () => {
-          if (!confirm('Delete "' + (e.title || 'this item') + '"?')) return;
+          if (!confirm(t('confirmDelete', { title: e.title || t('thisItem') }))) return;
           await store.remove(e.id);
           state.selectedId = null;
-          toast('Deleted');
-        } }, '🗑 Delete')));
+          toast(t('deleted'));
+        } }, t('delete'))));
   }
 
-  // search
+  // search / 搜索
   $('q').addEventListener('input', (e) => { state.query = e.target.value; state.aiIds = null; render(); });
   $('q').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); $('btnAsk').click(); }
@@ -249,12 +283,14 @@
   });
   function clearAi() { state.aiIds = null; state.aiNote = ''; render(); }
 
-  // ================= EDITOR =================
+  // ================= EDITOR / 编辑器 =================
+  // Note: use ef.elements.x — `ef.title` would be the form's own title attribute.
+  // 注意：要用 ef.elements.x —— `ef.title` 取到的是表单自身的 title 属性。
   const ef = $('editForm');
   function openEditor(entry) {
     ef.reset();
     ef.dataset.id = entry ? entry.id : '';
-    $('editTitle').textContent = entry ? 'Edit item' : 'New item';
+    $('editTitle').textContent = entry ? t('editItem') : t('newItem');
     $('editErr').hidden = true;
     ef.elements.password.type = 'password';
     if (entry) {
@@ -277,13 +313,13 @@
     if (a === 'toggle') ef.elements.password.type = ef.elements.password.type === 'password' ? 'text' : 'password';
     if (a === 'gen') openGenerator((pw) => { ef.elements.password.value = pw; ef.elements.password.type = 'text'; setMeter($('editMeter'), $('editMeterLabel'), pw); });
     if (a === 'suggest') {
-      if (!ef.elements.title.value && !ef.elements.url.value) { toast('Enter a title or website first'); return; }
+      if (!ef.elements.title.value && !ef.elements.url.value) { toast(t('needTitleOrUrl')); return; }
       await busy(act, async () => {
         const r = await ai.suggestFor(aiCfg(), { title: ef.elements.title.value, url: ef.elements.url.value });
         if (r.title) ef.elements.title.value = r.title;
         if (r.folder && !ef.elements.folder.value) ef.elements.folder.value = r.folder;
         if (r.tags && r.tags.length && !ef.elements.tags.value) ef.elements.tags.value = r.tags.join(', ');
-        toast('✨ Suggestions applied');
+        toast(t('suggestionsApplied'));
       }).catch(() => {});
     }
   });
@@ -294,17 +330,18 @@
     const fields = {
       title: ef.elements.title.value.trim(), url: ef.elements.url.value.trim(), username: ef.elements.username.value.trim(),
       password: ef.elements.password.value, folder: ef.elements.folder.value.trim(), notes: ef.elements.notes.value,
-      tags: ef.elements.tags.value.split(',').map((t) => t.trim().replace(/^#/, '')).filter(Boolean),
+      // accept both ASCII and full-width commas / 同时支持半角和全角逗号
+      tags: ef.elements.tags.value.split(/[,，、]/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean),
     };
     if (id) fields.id = id;
     if (!prev || prev.password !== fields.password) fields.pwChangedAt = Date.now();
     const saved = await store.upsert(fields);
     state.selectedId = saved.id;
     $('dlgEdit').close();
-    toast('Saved');
+    toast(t('saved'));
   });
 
-  // ================= GENERATOR =================
+  // ================= GENERATOR / 密码生成器 =================
   function genOpts() {
     return { length: +$('genLen').value, lower: $('genLower').checked, upper: $('genUpper').checked, digits: $('genDigits').checked, symbols: $('genSymbols').checked };
   }
@@ -324,11 +361,11 @@
   ['genLen', 'genLower', 'genUpper', 'genDigits', 'genSymbols'].forEach((id) => $(id).addEventListener('input', regen));
   $('genAgain').addEventListener('click', regen);
   $('genClose').addEventListener('click', () => $('dlgGen').close());
-  $('genCopy').addEventListener('click', () => copy($('genOut').textContent, 'Password copied'));
+  $('genCopy').addEventListener('click', () => copy($('genOut').textContent, t('passwordCopied')));
   $('genUse').addEventListener('click', () => { if (state.genTarget) state.genTarget($('genOut').textContent); $('dlgGen').close(); });
   $('btnGen').addEventListener('click', () => openGenerator(null));
 
-  // ================= SETTINGS =================
+  // ================= SETTINGS / 设置 =================
   const sf = $('setForm');
   function syncProviderVisibility() {
     for (const el of sf.querySelectorAll('[data-for]')) el.hidden = el.dataset.for !== sf.provider.value;
@@ -338,6 +375,7 @@
     for (const k of ['provider', 'apiKey', 'model', 'ollamaUrl', 'ollamaModel']) sf[k].value = c[k] || '';
     sf.autoLock.value = setting('autoLock', 10);
     sf.clipClear.value = setting('clipClear', 30);
+    $('langSettings').value = i18n.lang;
     syncProviderVisibility();
     $('dlgSettings').showModal();
   });
@@ -351,7 +389,7 @@
       clipClear: Math.max(5, +sf.clipClear.value || 30),
     });
     $('dlgSettings').close();
-    toast('Settings saved (encrypted)');
+    toast(t('settingsSaved'));
   });
   sf.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]');
@@ -359,19 +397,19 @@
     const a = act.dataset.act;
     if (a === 'cancel') $('dlgSettings').close();
     if (a === 'syncNow') {
-      if (!store.api) { toast('This vault is device-only (no sync server)'); return; }
+      if (!store.api) { toast(t('deviceOnly')); return; }
       await store.sync();
-      toast(store.status === 'synced' ? 'Synced' : 'Sync: ' + (store.statusDetail || store.status));
+      toast(store.status === 'synced' ? t('syncedToast') : t('syncFailed', { detail: store.lastError ? errText(store.lastError) : t('status.' + store.status) }));
     }
     if (a === 'export') {
       const blob = new Blob([JSON.stringify({ app: 'cloudvault', username: store.username, envelope: store.envelope }, null, 1)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       h('a', { href: url, download: 'cloudvault-backup-' + new Date().toISOString().slice(0, 10) + '.json' }).click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
-      toast('Encrypted backup downloaded');
+      toast(t('backupDone'));
     }
     if (a === 'forget') {
-      if (!confirm('Remove the encrypted vault copy from this device? ' + (store.api ? 'Your cloud copy is kept.' : 'THIS VAULT HAS NO SYNC SERVER — it will be gone for good.'))) return;
+      if (!confirm(store.api ? t('confirmForgetCloud') : t('confirmForgetLocal'))) return;
       store.forgetDevice();
       lock();
       $('lUser').value = '';
@@ -379,16 +417,17 @@
   });
   $('previewAi').addEventListener('click', (e) => {
     e.preventDefault();
-    showAi('What your AI receives', [
-      h('p', { class: 'muted small' }, 'This is the exact data every AI action can see. No passwords, usernames, full URLs or notes.'),
+    showAi(t('aiPreviewTitle'), [
+      h('p', { class: 'muted small' }, t('aiPreviewNote')),
       h('pre', { class: 'preview mono' }, JSON.stringify(ai.redact(store.entries), null, 2)),
     ]);
   });
 
-  // CSV import
+  // CSV import (RFC 4180 quoting) / CSV 导入（支持 RFC 4180 引号规则）
   function parseCsv(text) {
     const rows = [];
     let row = [], cur = '', q = false;
+    text = text.replace(/^﻿/, ''); // strip UTF-8 BOM (common in Excel exports) / 去掉 UTF-8 BOM（Excel 导出常见）
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
       if (q) {
@@ -416,22 +455,22 @@
       title: col('name', 'title'), url: col('url', 'login_uri', 'website'), username: col('username', 'login_username', 'email'),
       password: col('password', 'login_password'), notes: col('notes', 'note', 'extra'), folder: col('folder', 'grouping', 'group'),
     };
-    if (idx.password < 0) { toast('CSV needs a "password" column'); return; }
+    if (idx.password < 0) { toast(t('csvNeedsPw')); return; }
     const now = Date.now();
     let n = 0;
     for (const r of rows) {
       const get = (k) => (idx[k] >= 0 ? (r[idx[k]] || '').trim() : '');
-      const entry = { id: S.uuid(), title: get('title') || ai.domainOf(get('url')) || 'Imported', url: get('url'), username: get('username'),
+      const entry = { id: S.uuid(), title: get('title') || ai.domainOf(get('url')) || t('importedTitle'), url: get('url'), username: get('username'),
         password: r[idx.password] || '', notes: get('notes'), folder: get('folder'), tags: [], createdAt: now, updatedAt: now, pwChangedAt: now };
       store.vault.entries.push(entry);
       n++;
     }
     await store.save();
     $('dlgSettings').close();
-    toast('Imported ' + n + ' items — delete the CSV file now, it is unencrypted!');
+    toast(t('imported', { n }));
   });
 
-  // ================= ONE-CLICK AI =================
+  // ================= ONE-CLICK AI / 一键 AI =================
   function showAi(title, body, onApply) {
     $('aiTitle').textContent = title;
     $('aiBody').replaceChildren(...[].concat(body));
@@ -441,30 +480,32 @@
   }
   $('aiClose').addEventListener('click', () => $('dlgAi').close());
   function needEntries() {
-    if (!store.entries.length) { toast('Add some items first'); return false; }
+    if (!store.entries.length) { toast(t('addItemsFirst')); return false; }
     return true;
   }
 
+  // Plain-words search / 自然语言搜索
   $('btnAsk').addEventListener('click', () => {
     const q = $('q').value.trim();
-    if (!q) { toast('Type what you are looking for, e.g. "where do I pay my phone bill"'); $('q').focus(); return; }
+    if (!q) { toast(t('askHint')); $('q').focus(); return; }
     if (!needEntries()) return;
     busy($('btnAsk'), async () => {
       const r = await ai.smartSearch(aiCfg(), q, store.entries);
       state.aiIds = r.ids;
-      state.aiNote = r.explanation || (r.ids.length + ' result(s) for "' + q + '"');
+      state.aiNote = r.explanation || t('aiResultsFor', { n: r.ids.length, q });
       if (r.ids[0]) state.selectedId = r.ids[0];
       render();
     }).catch(() => {});
   });
 
+  // Security audit / 安全检查
   $('btnAudit').addEventListener('click', () => {
     if (!needEntries()) return;
     busy($('btnAudit'), async () => {
       const r = await ai.audit(aiCfg(), store.entries);
       const byId = new Map(store.entries.map((e) => [e.id, e]));
-      showAi('🛡 Security audit', [
-        h('div', { class: 'row' }, h('span', { class: 'score' }, String(r.score)), h('span', { class: 'muted' }, '/ 100 vault health')),
+      showAi(t('auditDlg'), [
+        h('div', { class: 'row' }, h('span', { class: 'score' }, String(r.score)), h('span', { class: 'muted' }, t('vaultHealth'))),
         h('p', null, r.summary),
         ...(r.findings || []).map((f) => {
           const e = byId.get(f.id);
@@ -475,21 +516,22 @@
     }).catch(() => {});
   });
 
+  // Organize: preview first, apply only on confirmation / 整理：先预览，确认后才应用
   $('btnOrganize').addEventListener('click', () => {
     if (!needEntries()) return;
     busy($('btnOrganize'), async () => {
       const items = await ai.organize(aiCfg(), store.entries);
       const byId = new Map(store.entries.map((e) => [e.id, e]));
       const changes = items.filter((s) => byId.has(s.id));
-      showAi('🏷 Organize — review suggestions', [
-        h('p', { class: 'muted small' }, 'Nothing changes until you click Apply all.'),
+      showAi(t('organizeDlg'), [
+        h('p', { class: 'muted small' }, t('organizeNote')),
         h('table', { class: 'org-table' }, changes.map((s) => h('tr', null,
-          h('td', null, byId.get(s.id).title), h('td', null, s.folder), h('td', { class: 'muted' }, (s.tags || []).map((t) => '#' + t).join(' '))))),
+          h('td', null, byId.get(s.id).title), h('td', null, s.folder), h('td', { class: 'muted' }, (s.tags || []).map((x) => '#' + x).join(' '))))),
       ], async () => {
         const now = Date.now();
         for (const s of changes) Object.assign(byId.get(s.id), { folder: s.folder, tags: s.tags || [], updatedAt: now });
         await store.save();
-        toast('Organized ' + changes.length + ' items');
+        toast(t('organized', { n: changes.length }));
       });
     }).catch(() => {});
   });
@@ -498,6 +540,7 @@
 
   // ================= PWA =================
   // Skipped inside native shells: Tauri and the Windows launcher (localhost:47821) already ship every file.
+  // 在原生外壳中跳过：Tauri 和 Windows 启动器（localhost:47821）已自带所有文件。
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !/tauri/.test(location.host) && location.port !== '47821') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
