@@ -41,7 +41,12 @@ static class CloudVaultLauncher
             t.Start();
         }
 
-        string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CloudVault");
+        // Portable mode: with portable.txt next to the .exe, keep the browser profile beside it.
+        // 便携模式：.exe 旁边有 portable.txt 时，把浏览器配置文件保存在它旁边。
+        string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        string dataDir = File.Exists(Path.Combine(exeDir, "portable.txt"))
+            ? Path.Combine(exeDir, "CloudVault-data")
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CloudVault");
         string edge = FindEdge();
         Process p = null;
         if (edge != null)

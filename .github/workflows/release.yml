@@ -5,12 +5,17 @@ name: Release
 # 推送 v0.1.0 这样的标签，即可构建下面所有的下载包并附加到 GitHub 草稿发布（Release）中。
 # 手动运行（Actions → Release → Run workflow）时，同样的文件只会作为工作流构件（artifacts）上传。
 #
-#   Windows   x64 / x86 (32-bit) / ARM64 : setup .exe (NSIS), .msi (x64/x86), portable .exe, "lite" .exe
+#   Windows   x64 / x86 (32-bit) / ARM64 : setup .exe (NSIS), .msi (x64/x86), portable .zip, "lite" .exe
 #   macOS     universal / Apple Silicon / Intel : .dmg and zipped .app
 #   Linux     x64 / ARM64 : .AppImage (also SteamOS), .deb, .rpm
 #   Android   universal + per-ABI .apk (arm64-v8a, armeabi-v7a, x86, x86_64), .aab when signing secrets exist
 #   Web       static PWA .zip, self-hosted server .zip/.tar.gz, multi-arch Docker image on GHCR
 #   SHA256SUMS.txt for everything
+#
+# File names carry no version, so https://github.com/<owner>/<repo>/releases/latest/download/<file>
+# always points at the newest published release (the README links to them).
+# 文件名不带版本号，因此 https://github.com/<owner>/<repo>/releases/latest/download/<文件名>
+# 永远指向最新发布的版本（README 中的下载链接就是这样写的）。
 on:
   push:
     tags: ['v*']
@@ -64,8 +69,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      V: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -92,16 +95,23 @@ jobs:
         run: |
           T=src-tauri/target/${{ matrix.target }}/release
           B=$T/bundle
-          N="CloudVault-$V-${{ matrix.platform }}-${{ matrix.arch }}"
+          N="CloudVault-${{ matrix.platform }}-${{ matrix.arch }}"
           mkdir -p dist
           one() { f=$(ls $1 2>/dev/null | head -1); if [ -n "$f" ]; then cp "$f" "dist/$2"; fi; }
           case ${{ matrix.platform }} in
             windows)
               one "$B/nsis/*-setup.exe" "$N-setup.exe"
               one "$B/msi/*.msi"        "$N.msi"
-              # the bare app binary runs without installing (needs WebView2, built into Windows 10/11)
-              # 直接运行的免安装版（需要 WebView2，Windows 10/11 已自带）
-              cp "$T/cloudvault.exe" "dist/$N-portable.exe" ;;
+              # Portable: unzip anywhere (e.g. a USB stick) and run. portable.txt makes the app keep its
+              # data in CloudVault-data next to the .exe (see src-tauri/src/lib.rs). Needs WebView2,
+              # which is built into Windows 10/11.
+              # 便携版：解压到任意位置（例如 U 盘）即可运行。portable.txt 让应用把数据保存在 .exe 旁边的
+              # CloudVault-data 文件夹中（见 src-tauri/src/lib.rs）。需要 WebView2，Windows 10/11 已自带。
+              P="$RUNNER_TEMP/CloudVault"
+              mkdir -p "$P"
+              cp "$T/cloudvault.exe" "$P/CloudVault.exe"
+              cp .github/portable.txt "$P/portable.txt"
+              (cd "$RUNNER_TEMP" && 7z a -tzip -bso0 "$GITHUB_WORKSPACE/dist/$N-portable.zip" CloudVault) ;;
             linux)
               one "$B/appimage/*.AppImage" "$N.AppImage"
               one "$B/deb/*.deb"           "$N.deb"
@@ -127,15 +137,13 @@ jobs:
   windows-lite:
     needs: release
     runs-on: windows-latest
-    env:
-      V: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Build / 构建
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          ./windows-launcher/build.ps1 -Out "dist/CloudVault-$env:V-windows-lite.exe"
+          ./windows-launcher/build.ps1 -Out "dist/CloudVault-windows-lite.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: cloudvault-windows-lite
@@ -149,7 +157,6 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     env:
-      V: ${{ needs.release.outputs.version }}
       NDK_VERSION: 27.2.12479018
       # If you add these secrets, signed release APKs + an .aab (for Google Play) are built;
       # otherwise debug-signed APKs you can sideload.
@@ -200,7 +207,7 @@ jobs:
           collect() {
             for f in $(find "$OUT/apk" -name '*.apk'); do
               abi=$(abi_name "$(basename "$(dirname "$(dirname "$f")")")")
-              dest="dist/CloudVault-$V-android-$abi.apk"
+              dest="dist/CloudVault-android-$abi.apk"
               if [ -n "$MODE" ]; then cp "$f" "$dest"; else
                 "$BT/zipalign" -f -p 4 "$f" "$RUNNER_TEMP/aligned.apk"
                 "$BT/apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$ANDROID_KEY_ALIAS" \
@@ -218,7 +225,7 @@ jobs:
             aab=$(find "$OUT/bundle" -name '*.aab' | head -1)
             jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$RUNNER_TEMP/release.jks" \
               -storepass:env ANDROID_KEY_PASSWORD -keypass:env ANDROID_KEY_PASSWORD \
-              -signedjar "dist/CloudVault-$V-android.aab" "$aab" "$ANDROID_KEY_ALIAS"
+              -signedjar "dist/CloudVault-android.aab" "$aab" "$ANDROID_KEY_ALIAS"
             rm "$RUNNER_TEMP/release.jks"
           fi
           ls -l dist
@@ -235,23 +242,21 @@ jobs:
   web:
     needs: release
     runs-on: ubuntu-latest
-    env:
-      V: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Package / 打包
         run: |
           mkdir -p dist stage
           # static PWA: host on any web server or open index.html / 静态 PWA：可放到任意网页服务器上
-          (cd app && zip -qr "../dist/CloudVault-$V-web.zip" .)
+          (cd app && zip -qr "../dist/CloudVault-web.zip" .)
           # sync server + app: `node server/server.js` (Node >= 20) or `docker compose up -d`
           # 同步服务器 + 应用：`node server/server.js`（Node >= 20）或 `docker compose up -d`
-          S="stage/CloudVault-$V-server"
+          S="stage/CloudVault-server"
           mkdir -p "$S"
           cp -r app server docker-compose.yml package.json README.md LICENSE "$S/"
           rm -rf "$S/server/data"
-          (cd stage && zip -qr "../dist/CloudVault-$V-server.zip" "CloudVault-$V-server" \
-            && tar -czf "../dist/CloudVault-$V-server.tar.gz" "CloudVault-$V-server")
+          (cd stage && zip -qr ../dist/CloudVault-server.zip CloudVault-server \
+            && tar -czf ../dist/CloudVault-server.tar.gz CloudVault-server)
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:

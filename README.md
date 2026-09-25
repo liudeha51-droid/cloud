@@ -16,6 +16,27 @@ with **typo-tolerant fuzzy search** and **one-click personal AI** (Claude or a f
 
 > **中文简介：** CloudVault 是一个零知识的云端密码管理器，支持 Android、iOS、Windows、Linux 和 SteamOS。它支持模糊搜索（允许错别字），并提供一键个人 AI（Claude 或本地 Ollama）。AI 永远看不到你的密码。界面支持 8 种语言，可在锁定界面或 ⚙ 设置中切换。
 
+## Download
+
+**Portable (no install):** unzip or run it from anywhere, including a USB stick.
+
+| Platform | Portable download |
+|---|---|
+| Windows 10/11 (64-bit) | [CloudVault-windows-x64-portable.zip](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-windows-x64-portable.zip) |
+| Windows 32-bit | [CloudVault-windows-x86-portable.zip](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-windows-x86-portable.zip) |
+| Windows on ARM | [CloudVault-windows-arm64-portable.zip](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-windows-arm64-portable.zip) |
+| Windows 7/8 or no WebView2 | [CloudVault-windows-lite.exe](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-windows-lite.exe) |
+| macOS (any Mac) | [CloudVault-macos-universal.app.zip](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-macos-universal.app.zip) |
+| Linux x64 / SteamOS | [CloudVault-linux-x64.AppImage](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-linux-x64.AppImage) |
+| Linux ARM64 | [CloudVault-linux-arm64.AppImage](https://github.com/liudeha51-droid/cloud/releases/latest/download/CloudVault-linux-arm64.AppImage) |
+
+- **Windows portable zip:** the included `portable.txt` makes CloudVault keep your encrypted vault in a `CloudVault-data` folder next to `CloudVault.exe`, so the whole folder moves with you. Delete `portable.txt` to store data in your user profile instead. The lite `.exe` does the same if you put a `portable.txt` beside it.
+- **Linux AppImage:** create a folder named after the file plus `.home` (for example `CloudVault-linux-x64.AppImage.home`) next to it, and the AppImage keeps its data there.
+
+Installers, Android APKs, the web bundle, the server and checksums are on the [latest release](https://github.com/liudeha51-droid/cloud/releases/latest).
+
+> **下载：** 便携版无需安装，可放在 U 盘中使用。Windows 便携版压缩包中的 `portable.txt` 会让数据保存在 `CloudVault.exe` 旁边的 `CloudVault-data` 文件夹里。安装包和其他版本见[最新发布](https://github.com/liudeha51-droid/cloud/releases/latest)。
+
 ## Architecture
 
 ```
@@ -68,14 +89,14 @@ Once your account exists, set `ALLOW_REGISTRATION=false` in `docker-compose.yml`
 
 | Platform | How |
 |---|---|
-| **Windows 10/11** | `…-windows-x64-setup.exe` (or `.msi`, or `-portable.exe` with no install) from GitHub Releases. Also 32-bit (`x86`) and ARM64 builds. |
-| **Windows 7/8 / no WebView2** | `…-windows-lite.exe`: a tiny launcher that opens the app in Edge or your default browser |
-| **macOS** | `…-macos-universal.dmg` (any Mac), or the smaller `arm64` (Apple Silicon) / `x64` (Intel) `.dmg` |
+| **Windows 10/11** | `CloudVault-windows-x64-setup.exe` (or `.msi`, or the [portable zip](#download)) from GitHub Releases. Also 32-bit (`x86`) and ARM64 builds. |
+| **Windows 7/8 / no WebView2** | `CloudVault-windows-lite.exe`: a tiny launcher that opens the app in Edge or your default browser |
+| **macOS** | `CloudVault-macos-universal.dmg` (any Mac), or the smaller `arm64` (Apple Silicon) / `x64` (Intel) `.dmg` |
 | **Linux** | `.AppImage` (any distro), `.deb` or `.rpm`, for x64 and ARM64 |
 | **SteamOS / Steam Deck** | Desktop Mode → download the x64 `.AppImage` → right-click → Properties → *Is executable* → in Steam: *Add a Non-Steam Game* to launch it from Gaming Mode. Touchscreen + on-screen keyboard (Steam + X) work. |
-| **Android 7+** | `…-android-universal.apk` from Releases (sideload), or a smaller per-CPU `.apk` (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`), or open your server URL in Chrome → *Install app* |
+| **Android 7+** | `CloudVault-android-universal.apk` from Releases (sideload), or a smaller per-CPU `.apk` (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`), or open your server URL in Chrome → *Install app* |
 | **iOS / iPadOS** | Open your server URL in Safari → Share → *Add to Home Screen* (PWA, no Apple account needed), or build the native app (below) |
-| **Any browser** | Open your server URL, or host the static files from `…-web.zip` anywhere |
+| **Any browser** | Open your server URL, or host the static files from `CloudVault-web.zip` anywhere |
 
 ### 3. Create your vault
 
@@ -152,7 +173,7 @@ gh repo create cloudvault --private --source . --push
 Then:
 
 - **CI** runs tests on every push.
-- **Releases:** create and push a version tag (`git tag v0.1.0`, then `git push --tags`). The *Release* workflow builds every download into a draft release: Windows (x64/x86/ARM64 installers, `.msi`, portable and lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, and `SHA256SUMS.txt`. It also pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`. Review the draft and publish it. The notes come from `.github/release-notes.md`.
+- **Releases:** create and push a version tag (`git tag v0.1.0`, then `git push --tags`). The *Release* workflow builds every download into a draft release: Windows (x64/x86/ARM64 installers, `.msi`, portable `.zip`, lite `.exe`), macOS (universal/Apple Silicon/Intel), Linux (x64/ARM64 `.AppImage`/`.deb`/`.rpm`), Android (universal + per-ABI `.apk`), the web and server bundles, and `SHA256SUMS.txt`. It also pushes a multi-arch server image to `ghcr.io/<owner>/<repo>`. Review the draft and publish it. The notes come from `.github/release-notes.md`.
 - **Signed Android release (optional):** add repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. With them you also get a signed `.aab` for Google Play. Without them you get debug-signed APKs, which are fine for sideloading.
 - **iOS:** add `APPLE_DEVELOPMENT_TEAM`, `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`, then run the *iOS* workflow manually. This requires a paid Apple Developer account. Otherwise, use the PWA.
 
