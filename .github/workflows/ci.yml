@@ -18,3 +18,31 @@ jobs:
           node-version: 22
       - name: Unit + integration tests (crypto, fuzzy search, merge, sync server)
         run: node --test
+
+  # Compile the Tauri shell and make sure the Linux build actually starts and opens its window.
+  # 编译 Tauri 外壳，并确认 Linux 版本能真正启动并打开窗口。
+  rust:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Linux system dependencies / Linux 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev xvfb x11-utils
+      - run: npm install
+      - name: Generate app icons (needed to compile) / 生成图标（编译时需要）
+        run: npx tauri icon app/icon.svg
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets
+      - name: Build the app (debug, no installers) / 构建应用（调试版，不打包安装程序）
+        run: npx tauri build --debug --no-bundle
+      - name: Startup smoke test under Xvfb / 在 Xvfb 下做启动冒烟测试
+        run: .github/smoke-linux.sh src-tauri/target/debug/cloudvault
