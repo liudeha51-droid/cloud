@@ -1,0 +1,14 @@
+CloudVault portable / CloudVault 便携版
+
+This file turns on portable mode. CloudVault keeps its data (your encrypted
+vault and settings) in the "CloudVault-data" folder next to CloudVault.exe,
+not in your Windows user profile. Copy the whole folder to move it, for
+example to a USB stick. Delete this file to use the normal location instead.
+
+Requires Microsoft Edge WebView2, which is built into Windows 10 and 11.
+
+本文件用于开启便携模式：CloudVault 会把数据（加密的密码库和设置）保存在
+CloudVault.exe 旁边的 "CloudVault-data" 文件夹中，而不是 Windows 用户目录。
+复制整个文件夹即可迁移，例如放到 U 盘里。删除本文件即恢复为普通存储位置。
+
+需要 Microsoft Edge WebView2（Windows 10 和 11 已自带）。

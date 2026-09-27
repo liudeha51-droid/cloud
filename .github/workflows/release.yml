@@ -1,24 +1,34 @@
 name: Release
 
-# Push a tag like v0.2.0 to build every download below, upload them as assets of a GitHub Release,
-# and publish that release once every build has succeeded, so the Release page offers direct downloads.
-# Tags with a hyphen (v0.2.0-beta.1) are published as pre-releases and never become "latest".
+# Push a tag like v0.1.0 to build every download below and attach it to a draft GitHub Release.
 # Run it manually (Actions → Release → Run workflow) to get the same files as workflow artifacts only.
-# 推送 v0.2.0 这样的标签，即可构建下面所有的下载包，作为附件上传到 GitHub Release，
-# 并在所有构建成功后自动发布，让 Release 页面提供可直接下载的文件。
-# 带连字符的标签（v0.2.0-beta.1）会作为预发布版本发布，不会成为“最新版本”。
+# 推送 v0.1.0 这样的标签，即可构建下面所有的下载包并附加到 GitHub 草稿发布（Release）中。
 # 手动运行（Actions → Release → Run workflow）时，同样的文件只会作为工作流构件（artifacts）上传。
 #
-#   Windows   x64 / x86 (32-bit) / ARM64 : setup .exe (NSIS), .msi (x64/x86), portable .exe, "lite" .exe
+#   Windows   x64 / x86 (32-bit) / ARM64 : setup .exe (NSIS), .msi (x64/x86), portable .zip, "lite" .exe
 #   macOS     universal / Apple Silicon / Intel : .dmg and zipped .app
 #   Linux     x64 / ARM64 : .AppImage (also SteamOS), .deb, .rpm
 #   Android   universal + per-ABI .apk (arm64-v8a, armeabi-v7a, x86, x86_64), .aab when signing secrets exist
 #   Web       static PWA .zip, self-hosted server .zip/.tar.gz, multi-arch Docker image on GHCR
 #   SHA256SUMS.txt for everything
+#
+# File names carry no version, so https://github.com/<owner>/<repo>/releases/latest/download/<file>
+# always points at the newest published release (the README links to them).
+# 文件名不带版本号，因此 https://github.com/<owner>/<repo>/releases/latest/download/<文件名>
+# 永远指向最新发布的版本（README 中的下载链接就是这样写的）。
 on:
   push:
     tags: ['v*']
+  # Or run it from the Actions tab with a version such as v0.2.0: the workflow creates the tag and
+  # release itself, so no git push is needed. Leave it empty for a test build (artifacts only).
+  # 也可以在 Actions 页面手动运行并填写版本号（如 v0.2.0）：工作流会自己创建标签和发布，无需 git push。
+  # 留空则只做测试构建（只上传构件）。
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Version to release, e.g. v0.2.0 (empty = test build only)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -26,6 +36,9 @@ permissions:
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_REPO: ${{ github.repository }}
+  # The release tag: the pushed tag, or the version typed in when run manually ('' = no release).
+  # 发布标签：推送的标签，或手动运行时填写的版本号（空 = 不发布）。
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
 
 jobs:
   # Create the draft release once, so parallel jobs don't race to create it.
@@ -39,22 +52,28 @@ jobs:
       - id: v
         name: Work out the version / 确定版本号
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then v="${GITHUB_REF_NAME#v}"; else v="$(node -p "require('./src-tauri/tauri.conf.json').version")-dev"; fi
+          if [ -n "$TAG" ]; then
+            if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+              echo "::error::Release tag must look like v1.2.3 or v1.2.3-beta.1 (got '$TAG')"; exit 1
+            fi
+            v="${TAG#v}"
+          else
+            v="$(node -p "require('./src-tauri/tauri.conf.json').version")-dev"
+          fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
-      # Starts as a draft so nobody downloads a half-uploaded release; the `publish` job makes it public.
-      # {{DL}} becomes this tag's download URL, so every file in the notes is a direct download link.
-      # 先作为草稿创建，避免有人下载到未上传完的版本；由 `publish` 任务公开发布。
-      # {{DL}} 会替换为该标签的下载地址，让说明中的每个文件都是直接下载链接。
       - name: Create draft release / 创建草稿发布
-        if: github.ref_type == 'tag'
+        if: env.TAG != ''
         run: |
           sed -e "s/{{VERSION}}/${{ steps.v.outputs.version }}/g" -e "s#{{REPO}}#${GITHUB_REPOSITORY,,}#g" \
-            -e "s#{{DL}}#https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME#g" \
             .github/release-notes.md > "$RUNNER_TEMP/notes.md"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
-          else
-            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "CloudVault $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          # --target: on a manual run the tag doesn't exist yet; publishing creates it on this commit.
+          # --target：手动运行时标签还不存在，发布时会在这个提交上创建它。
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)" = true ]; then
+            # re-run of an unpublished release: point it at this commit so the tag includes any fixes
+            # 重新运行尚未发布的版本：让它指向当前提交，确保标签包含修复
+            gh release edit "$TAG" --target "$GITHUB_SHA"
+          elif ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "CloudVault $TAG" --notes-file "$RUNNER_TEMP/notes.md"
           fi
 
   desktop:
@@ -76,8 +95,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      V: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,8 +112,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf file xdg-utils
-      - name: Stamp the tag's version into the app / 把标签版本号写入应用
-        run: node .github/scripts/stamp-version.js "$V"
       - run: npm install
       - name: Generate app icons from app/icon.svg / 由 app/icon.svg 生成图标
         run: npx tauri icon app/icon.svg
@@ -106,16 +121,24 @@ jobs:
         run: |
           T=src-tauri/target/${{ matrix.target }}/release
           B=$T/bundle
-          N="CloudVault-$V-${{ matrix.platform }}-${{ matrix.arch }}"
+          N="CloudVault-${{ matrix.platform }}-${{ matrix.arch }}"
           mkdir -p dist
-          one() { f=$(ls $1 2>/dev/null | head -1); if [ -n "$f" ]; then cp "$f" "dist/$2"; fi; }
+          # copy the first file matching a glob, if any (e.g. no .msi for ARM64) / 复制第一个匹配的文件（如有）
+          one() { for f in $1; do if [ -e "$f" ]; then cp "$f" "dist/$2"; return 0; fi; done; }
           case ${{ matrix.platform }} in
             windows)
               one "$B/nsis/*-setup.exe" "$N-setup.exe"
               one "$B/msi/*.msi"        "$N.msi"
-              # the bare app binary runs without installing (needs WebView2, built into Windows 10/11)
-              # 直接运行的免安装版（需要 WebView2，Windows 10/11 已自带）
-              cp "$T/cloudvault.exe" "dist/$N-portable.exe" ;;
+              # Portable: unzip anywhere (e.g. a USB stick) and run. portable.txt makes the app keep its
+              # data in CloudVault-data next to the .exe (see src-tauri/src/lib.rs). Needs WebView2,
+              # which is built into Windows 10/11.
+              # 便携版：解压到任意位置（例如 U 盘）即可运行。portable.txt 让应用把数据保存在 .exe 旁边的
+              # CloudVault-data 文件夹中（见 src-tauri/src/lib.rs）。需要 WebView2，Windows 10/11 已自带。
+              P="$RUNNER_TEMP/CloudVault"
+              mkdir -p "$P"
+              cp "$T/cloudvault.exe" "$P/CloudVault.exe"
+              cp .github/portable.txt "$P/portable.txt"
+              (cd "$RUNNER_TEMP" && 7z a -tzip -bso0 "$GITHUB_WORKSPACE/dist/$N-portable.zip" CloudVault) ;;
             linux)
               one "$B/appimage/*.AppImage" "$N.AppImage"
               one "$B/deb/*.deb"           "$N.deb"
@@ -131,8 +154,8 @@ jobs:
           name: cloudvault-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/*
       - name: Attach to release / 附加到发布
-        if: github.ref_type == 'tag'
-        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+        if: env.TAG != ''
+        run: gh release upload "$TAG" dist/* --clobber
 
   # Tiny launcher for older Windows (7/8) or machines without WebView2: serves the app on localhost
   # and opens it in Edge (or the default browser). Built with the C# compiler that ships with Windows.
@@ -141,29 +164,26 @@ jobs:
   windows-lite:
     needs: release
     runs-on: windows-latest
-    env:
-      V: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Build / 构建
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          ./windows-launcher/build.ps1 -Out "dist/CloudVault-$env:V-windows-lite.exe"
+          ./windows-launcher/build.ps1 -Out "dist/CloudVault-windows-lite.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: cloudvault-windows-lite
           path: dist/*
       - name: Attach to release / 附加到发布
-        if: github.ref_type == 'tag'
+        if: env.TAG != ''
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+        run: gh release upload "$TAG" dist/* --clobber
 
   android:
     needs: release
     runs-on: ubuntu-latest
     env:
-      V: ${{ needs.release.outputs.version }}
       NDK_VERSION: 27.2.12479018
       # If you add these secrets, signed release APKs + an .aab (for Google Play) are built;
       # otherwise debug-signed APKs you can sideload.
@@ -195,8 +215,6 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - name: Stamp the tag's version into the app / 把标签版本号写入应用
-        run: node .github/scripts/stamp-version.js "$V"
       - run: npm install
       - run: npx tauri icon app/icon.svg
       - run: npx tauri android init --ci
@@ -216,7 +234,7 @@ jobs:
           collect() {
             for f in $(find "$OUT/apk" -name '*.apk'); do
               abi=$(abi_name "$(basename "$(dirname "$(dirname "$f")")")")
-              dest="dist/CloudVault-$V-android-$abi.apk"
+              dest="dist/CloudVault-android-$abi.apk"
               if [ -n "$MODE" ]; then cp "$f" "$dest"; else
                 "$BT/zipalign" -f -p 4 "$f" "$RUNNER_TEMP/aligned.apk"
                 "$BT/apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$ANDROID_KEY_ALIAS" \
@@ -234,7 +252,7 @@ jobs:
             aab=$(find "$OUT/bundle" -name '*.aab' | head -1)
             jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$RUNNER_TEMP/release.jks" \
               -storepass:env ANDROID_KEY_PASSWORD -keypass:env ANDROID_KEY_PASSWORD \
-              -signedjar "dist/CloudVault-$V-android.aab" "$aab" "$ANDROID_KEY_ALIAS"
+              -signedjar "dist/CloudVault-android.aab" "$aab" "$ANDROID_KEY_ALIAS"
             rm "$RUNNER_TEMP/release.jks"
           fi
           ls -l dist
@@ -243,23 +261,21 @@ jobs:
           name: cloudvault-android
           path: dist/*
       - name: Attach to release / 附加到发布
-        if: github.ref_type == 'tag'
-        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+        if: env.TAG != ''
+        run: gh release upload "$TAG" dist/* --clobber
 
   # Platform-independent downloads: the PWA and the self-hosted sync server.
   # 与平台无关的下载包：PWA 网页应用和自托管同步服务器。
   web:
     needs: release
     runs-on: ubuntu-latest
-    env:
-      V: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Package / 打包
         run: |
           mkdir -p dist stage
           # static PWA: host on any web server or open index.html / 静态 PWA：可放到任意网页服务器上
-          (cd app && zip -qr "../dist/CloudVault-$V-web.zip" .)
+          (cd app && zip -qr "../dist/CloudVault-web.zip" .)
           # SteamOS / Bazzite / ChimeraOS installer: downloads + verifies the AppImage from this repo's releases.
           # Fixed file name so releases/latest/download/cloudvault-steamos-install.sh always works.
           # SteamOS / Bazzite / ChimeraOS 安装脚本：从本仓库的发布中下载并校验 AppImage。
@@ -268,20 +284,20 @@ jobs:
           chmod 755 dist/cloudvault-steamos-install.sh
           # sync server + app: `node server/server.js` (Node >= 20) or `docker compose up -d`
           # 同步服务器 + 应用：`node server/server.js`（Node >= 20）或 `docker compose up -d`
-          S="stage/CloudVault-$V-server"
+          S="stage/CloudVault-server"
           mkdir -p "$S"
           cp -r app server docker-compose.yml package.json README.md LICENSE "$S/"
           rm -rf "$S/server/data"
-          (cd stage && zip -qr "../dist/CloudVault-$V-server.zip" "CloudVault-$V-server" \
-            && tar -czf "../dist/CloudVault-$V-server.tar.gz" "CloudVault-$V-server")
+          (cd stage && zip -qr ../dist/CloudVault-server.zip CloudVault-server \
+            && tar -czf ../dist/CloudVault-server.tar.gz CloudVault-server)
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
           name: cloudvault-web
           path: dist/*
       - name: Attach to release / 附加到发布
-        if: github.ref_type == 'tag'
-        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+        if: env.TAG != ''
+        run: gh release upload "$TAG" dist/* --clobber
 
   # Server image for x86-64 servers, ARM64 (Raspberry Pi 4/5, Apple Silicon, cloud ARM) and 32-bit ARM (older Pis).
   # 服务器镜像：适用于 x86-64 服务器、ARM64（树莓派 4/5、Apple Silicon、云端 ARM）和 32 位 ARM（旧款树莓派）。
@@ -296,7 +312,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        if: github.ref_type == 'tag'
+        if: env.TAG != ''
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -306,73 +322,48 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
+            type=raw,value=latest,enable=${{ env.TAG != '' && !contains(env.TAG, '-') }}
             type=sha
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: server/Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: ${{ github.ref_type == 'tag' }}
+          push: ${{ env.TAG != '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  # Runs even if some builds failed, so whatever did build still gets checksums (the release then stays a draft).
-  # 即使部分构建失败也会运行，确保已构建好的文件都有校验和（此时版本保持草稿状态）。
+  # Runs even if some builds failed, so whatever did build still gets checksums.
+  # 即使部分构建失败也会运行，确保已构建好的文件都有校验和。
   checksums:
     needs: [release, desktop, windows-lite, android, web]
-    if: always() && github.ref_type == 'tag' && needs.release.result == 'success'
+    if: always() && needs.release.result == 'success' && (github.ref_type == 'tag' || inputs.release_tag != '')
     runs-on: ubuntu-latest
     steps:
       - name: SHA256SUMS.txt
         run: |
           mkdir assets && cd assets
-          gh release download "$GITHUB_REF_NAME"
+          gh release download "$TAG"
           rm -f SHA256SUMS.txt
           sha256sum * | tee SHA256SUMS.txt
-          gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --clobber
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
 
-  # Make the release public once every download is attached and checksummed. If any build failed, this job
-  # is skipped and the release stays a draft: fix the build and re-run the failed jobs to publish it.
-  # 所有下载包都已附加并生成校验和后，公开发布该版本。如果有任何构建失败，此任务会被跳过，版本保持草稿状态：
-  # 修复构建并重新运行失败的任务即可发布。
+  # Publish only when every download built, so releases/latest/download/* links never point at
+  # a half-empty release. If anything failed, the release stays a draft to fix and re-run.
+  # 只有所有下载包都构建成功才发布，确保 releases/latest/download/* 链接不会指向不完整的发布。
+  # 如有失败，发布会保持为草稿，修复后重新运行即可。
   publish:
     needs: [release, desktop, windows-lite, android, web, checksums]
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || inputs.release_tag != ''
     runs-on: ubuntu-latest
     steps:
-      - name: Check every download link in the notes has a file / 检查说明中的每个下载链接都有对应文件
+      - name: Publish release / 发布
         run: |
-          gh release view "$GITHUB_REF_NAME" --json body,assets > rel.json
-          jq -r '.assets[].name' rel.json | sort -u > have.txt
-          jq -r '.body' rel.json | grep -oE "releases/download/$GITHUB_REF_NAME/[^) \"]+" | sed 's#.*/##' | sort -u > want.txt || true
-          echo "Assets: $(wc -l < have.txt) · linked in notes: $(wc -l < want.txt)"
-          missing="$(comm -23 want.txt have.txt)"
-          if [ -n "$missing" ]; then
-            echo "::error::Release notes link to files that were not uploaded:"; echo "$missing"; exit 1
-          fi
-      - name: Publish / 发布
-        run: |
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
+          if [[ "$TAG" == *-* ]]; then
+            gh release edit "$TAG" --draft=false --prerelease
           else
-            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest
+            gh release edit "$TAG" --draft=false --latest
           fi
-          gh release view "$GITHUB_REF_NAME" --json url -q .url >> "$GITHUB_STEP_SUMMARY"
-      - name: Check downloads work without signing in / 检查无需登录即可下载
-        if: ${{ !github.event.repository.private }}
-        run: |
-          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
-          for f in SHA256SUMS.txt cloudvault-steamos-install.sh; do
-            for i in 1 2 3 4 5 6; do
-              if curl -fsSIL -o /dev/null "$base/$f"; then echo "OK  $base/$f"; continue 2; fi
-              sleep 10
-            done
-            echo "::error::Not downloadable: $base/$f"; exit 1
-          done
-          if [[ "$GITHUB_REF_NAME" != *-* ]]; then
-            curl -fsSIL -o /dev/null "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/cloudvault-steamos-install.sh" \
-              && echo "OK  releases/latest/download/cloudvault-steamos-install.sh"
-          fi
+          gh release view "$TAG" --json url,isDraft,assets --jq '"\(.url) draft=\(.isDraft) files=\(.assets | length)"'

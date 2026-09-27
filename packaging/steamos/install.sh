@@ -10,7 +10,7 @@
 # Usage (Desktop Mode → Konsole) / 用法（桌面模式 → Konsole）:
 #   bash install.sh                      # download + install the latest release / 下载并安装最新版本
 #   bash install.sh --update             # same, to update / 同上，用于更新
-#   bash install.sh ~/Downloads/CloudVault-*-linux-x64.AppImage   # a file you already downloaded / 已下载的文件
+#   bash install.sh ~/Downloads/CloudVault-linux-x64.AppImage   # a file you already downloaded / 已下载的文件
 #   bash install.sh --uninstall
 set -euo pipefail
 
@@ -57,7 +57,7 @@ download() {
     ver="${tag#v}"
   fi
   base="https://github.com/$repo/releases/download/v$ver"
-  name="CloudVault-$ver-linux-$ARCH.AppImage"
+  name="CloudVault-linux-$ARCH.AppImage"
   DL="$(mktemp -d)"
   say "Downloading $name … / 正在下载 $name …"
   curl -fL --progress-bar -o "$DL/$name" "$base/$name" \
@@ -80,7 +80,7 @@ SRC="${1:-}"
 if [[ -z "$SRC" || "$SRC" == "--update" ]]; then
   download
 elif [[ ! -f "$SRC" ]]; then
-  echo "Usage: bash install.sh [path/to/CloudVault-<version>-linux-$ARCH.AppImage | --update]" >&2
+  echo "Usage: bash install.sh [path/to/CloudVault-linux-$ARCH.AppImage | --update]" >&2
   echo "With no file, the latest release is downloaded. / 不指定文件时会下载最新版本。" >&2
   exit 1
 fi
