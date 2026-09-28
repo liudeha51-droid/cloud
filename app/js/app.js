@@ -282,6 +282,14 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') { e.preventDefault(); lock(); }
   });
   function clearAi() { state.aiIds = null; state.aiNote = ''; render(); }
+  // Gamepad Y (js/gamepad.js): copy the selected item's password, or the top search hit's.
+  // 手柄 Y 键（js/gamepad.js）：复制选中条目的密码，没有选中时复制第一个搜索结果的密码。
+  document.addEventListener('cloudvault:copy-password', () => {
+    const e = store.entries.find((x) => x.id === state.selectedId) || visibleEntries()[0];
+    if (!e || !e.password) { toast(t('noMatches')); return; }
+    if (e.id !== state.selectedId) select(e.id);
+    copy(e.password, t('passwordCopied'));
+  });
 
   // ================= EDITOR / 编辑器 =================
   // Note: use ef.elements.x — `ef.title` would be the form's own title attribute.

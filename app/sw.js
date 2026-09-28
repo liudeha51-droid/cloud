@@ -1,8 +1,8 @@
 // Offline shell for the PWA. Caches only the app's own static files — never API responses.
 // PWA 的离线外壳。只缓存应用自身的静态文件——绝不缓存 API 响应。
-const CACHE = 'cloudvault-v2'; // bump when the file list changes / 文件列表变化时递增版本号
+const CACHE = 'cloudvault-v3'; // bump when the file list changes / 文件列表变化时递增版本号
 const SHELL = ['./', 'index.html', 'styles.css', 'icon.svg', 'manifest.webmanifest',
-  'js/i18n.js', 'js/crypto.js', 'js/fuzzy.js', 'js/store.js', 'js/ai.js', 'js/app.js'];
+  'js/i18n.js', 'js/platform.js', 'js/crypto.js', 'js/fuzzy.js', 'js/store.js', 'js/ai.js', 'js/app.js', 'js/gamepad.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
